@@ -29,16 +29,15 @@ void environment::run() {
   }
   // Allocate Qt resources.
   QApplication app{argc, args.data()};
-  auto mw = std::make_unique<MainWindow>(this);
-  main_window_ = mw.get();
+  main_window_ = std::make_unique<MainWindow>(this);
   // Connect main window events to environment slots.
-  connect(main_window_, SIGNAL(tick_triggered()),
+  connect(main_window_.get(), SIGNAL(tick_triggered()),
           this, SLOT(tick()));
-  connect(main_window_, SIGNAL(manual_tick_triggered()),
+  connect(main_window_.get(), SIGNAL(manual_tick_triggered()),
           this, SLOT(manual_tick()));
   // Initialize main window and start all entities.
-  mw->show();
-  entities_.emplace_back(std::move(mw));
+  main_window_->show();
+  main_window_->start();
   for (auto& e : entities_)
     e->start();
   // Enter Qt's event loop.
@@ -47,9 +46,21 @@ void environment::run() {
   app.exec();
   running_ = false;
   // Clean up all state except the CAF system.
-  main_window_ = nullptr;
+  main_window_.reset();
   entities_.clear();
   disconnect();
+}
+
+entity* environment::entity_by_id(const QString& x) const {
+  auto pred = [&](const entity_ptr& y) {
+    assert(y != nullptr);
+    return x == y->id();
+  };
+  auto e = entities_.end();
+  auto i = std::find_if(entities_.begin(), e, pred);
+  if (i != e)
+    return i->get();
+  return nullptr;
 }
 
 entity* environment::entity_by_handle(const caf::actor_addr& x) const {
@@ -70,10 +81,13 @@ QString environment::id_by_handle(const caf::actor_addr& x) const {
 }
 
 void environment::tick() {
+  main_window_->before_tick();
   for (auto& entity : entities_)
     entity->before_tick();
+  main_window_->tick();
   for (auto& entity : entities_)
     entity->tick();
+  main_window_->after_tick();
   for (auto& entity : entities_)
     entity->after_tick();
 }

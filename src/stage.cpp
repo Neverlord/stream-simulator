@@ -26,10 +26,9 @@
 
 #include "environment.hpp"
 
-stage::stage(environment* env, QObject* parent, QString name,
-             caf::actor consumer)
+stage::stage(environment* env, QWidget* parent, QString name)
     : entity(env, parent, name),
-      source(env, parent, name, std::move(consumer)),
+      source(env, parent, name),
       sink(env, parent, name),
       completed_items_(0) {
   init(ratio_in_, name + "RatioIn");
@@ -37,9 +36,13 @@ stage::stage(environment* env, QObject* parent, QString name,
   init(output_buffer_, name + "OutputBuffer");
   // Hide widgets inherited from source that aren't used.
   item_generation_->hide();
-  parent->findChild<QLabel*>(name + "ItemGenerationLabel")->hide();
+  QLabel* lbl1 = nullptr;
+  init(lbl1, name + "ItemGenerationLabel");
+  lbl1->hide();
   rate_->hide();
-  parent->findChild<QLabel*>(name + "RateLabel")->hide();
+  QLabel* lbl2 = nullptr;
+  init(lbl2, name + "RateLabel");
+  lbl2->hide();
 }
 
 stage::~stage() {
@@ -51,7 +54,7 @@ void stage::start() {
     [=](const caf::stream<int>& in) {
       auto& stages = simulant_->current_mailbox_element()->stages;
       stages.insert(stages.begin(),
-                    caf::actor_cast<caf::strong_actor_ptr>(consumer_));
+                    caf::actor_cast<caf::strong_actor_ptr>(consumers_.front()));
       if (!simulant_->streams().empty()) {
         auto& sm = simulant_->current_mailbox_element()->content().get_as<caf::stream_msg>(0);
         auto& op = caf::get<caf::stream_msg::open>(sm.content);

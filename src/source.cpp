@@ -21,10 +21,8 @@
 
 #include "caf/stream.hpp"
 
-source::source(environment* env, QObject* parent, QString name,
-               caf::actor consumer)
-    : entity(env, parent, name),
-      consumer_(std::move(consumer)) {
+source::source(environment* env, QWidget* parent, QString name)
+    : entity(env, parent, name) {
   init(weight_, name + "Weight");
   init(rate_, name + "Rate");
   init(credit_, name + "Credit");
@@ -40,7 +38,7 @@ source::~source() {
 
 void source::start() {
   stream_manager_ = simulant_->make_source(
-    consumer_,
+    consumers_.front(),
     [](caf::unit_t&) {
       // nop
     },
@@ -61,6 +59,7 @@ void source::start() {
       // nop
     }
   ).ptr();
+  // TODO: add remaining consumers to the stream.
   simulant_->model()->update();
 }
 
@@ -95,6 +94,10 @@ void source::tock() {
 
 caf::stream_scatterer& source::out() {
   return stream_manager_->out();
+}
+
+void source::add_consumer(caf::actor consumer) {
+  consumers_.emplace_back(std::move(consumer));
 }
 
 void source::produce_batch_impl() {

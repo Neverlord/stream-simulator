@@ -28,7 +28,7 @@
 
 class source : virtual public entity {
 public:
-  source(environment* env, QObject* parent, QString name, caf::actor consumer);
+  source(environment* env, QWidget* parent, QString name);
 
   ~source() override;
 
@@ -56,11 +56,13 @@ public:
 
   caf::stream_scatterer& out();
 
+  void add_consumer(caf::actor consumer);
+
 protected:
   void produce_batch_impl();
 
   // Pointer to the next stage in the pipeline.
-  caf::actor consumer_;
+  std::vector<caf::actor> consumers_;
 
   // Pointer to the CAF stream handler to advance the stream manually.
   caf::stream_manager_ptr stream_manager_;

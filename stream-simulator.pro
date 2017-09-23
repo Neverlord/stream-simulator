@@ -25,7 +25,10 @@ SOURCES += \
     src/simulant.cpp \
     src/environment.cpp \
     src/simulant_tree_model.cpp \
-    src/simulant_tree_item.cpp
+    src/simulant_tree_item.cpp \
+    src/dag_widget.cpp \
+    src/edge.cpp \
+    src/node.cpp
 
 HEADERS += \
     include/mainwindow.hpp \
@@ -40,7 +43,10 @@ HEADERS += \
     include/environment.hpp \
     include/simulant_tree_model.hpp \
     include/simulant_tree_item.hpp \
-    include/qstr.hpp
+    include/qstr.hpp \
+    include/dag_widget.hpp \
+    include/edge.hpp \
+    include/node.hpp
 
 FORMS += \
     ui/mainwindow.ui

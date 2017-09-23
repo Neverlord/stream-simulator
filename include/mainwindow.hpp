@@ -33,7 +33,7 @@
 
 #include "ui_mainwindow.h"
 
-class MainWindow : public QMainWindow, public entity, public Ui::MainWindow {
+class MainWindow : public QMainWindow, public Ui::MainWindow {
   Q_OBJECT
 
 public:
@@ -41,15 +41,15 @@ public:
 
   ~MainWindow();
 
-  void start() override;
+  void start();
 
-  void before_tick() override;
+  void before_tick();
 
-  void tick() override;
+  void tick();
 
-  void after_tick() override;
+  void after_tick();
 
-  void tock() override;
+  void tock();
 
 signals:
 
@@ -61,23 +61,11 @@ public slots:
 
   void manual_tick_count_changed(int);
 
-public:
-  QGroupBox* make_source(QString name, QGridLayout* parent = nullptr,
-                         int start_row = 0, int start_column = 0,
-                         bool add_mailbox = true);
-
-  QGroupBox* make_sink(QString name, QGridLayout* parent = nullptr,
-                       int start_row = 0, int start_column = 0);
-
-  QGroupBox* make_stage(QString name, QGridLayout* parent = nullptr,
-                        int start_row = 0, int start_column = 0);
-
-  QFrame* make_connection(QString from, QString to);
-
 private:
   void load_layout(QTextStream& in);
   void load_default_view();
 
+  environment* env_;
   QTimer* timer;
 };
 

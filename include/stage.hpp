@@ -25,7 +25,7 @@
 
 class stage : public source, public sink {
   public:
-  stage(environment* env, QObject* parent, QString name, caf::actor consumer);
+  stage(environment* env, QWidget* parent, QString name);
 
   ~stage();
 

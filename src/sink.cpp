@@ -23,7 +23,7 @@
 
 #include "environment.hpp"
 
-sink::sink(environment* env, QObject* parent, QString name)
+sink::sink(environment* env, QWidget* parent, QString name)
     : entity(env, parent, name) {
   init(credit_per_interval_, name + "CreditPerInterval");
   init(ticks_per_item_, name + "TicksPerItem");

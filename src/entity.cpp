@@ -26,7 +26,7 @@
 #include "qstr.hpp"
 #include "environment.hpp"
 
-entity::entity(environment* env, QObject* parent, QString name)
+entity::entity(environment* env, QWidget* parent, QString name)
   : env_(env),
     parent_(parent),
     name_(name),
@@ -59,6 +59,10 @@ void entity::after_tick() {
 
 void entity::tock() {
   // nop
+}
+
+simulant_tree_model* entity::model() {
+  return simulant_->model();
 }
 
 int entity::tick_time() const {

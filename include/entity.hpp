@@ -41,7 +41,7 @@ public:
     produce_batch
   };
 
-  entity(environment* env, QObject* parent, QString name);
+  entity(environment* env, QWidget* parent, QString name);
 
   virtual ~entity();
 
@@ -65,13 +65,15 @@ public:
     return name_;
   }
 
-  inline QObject* parent() const {
+  inline QWidget* parent() const {
     return parent_;
   }
 
   inline environment* env() const {
     return env_;
   }
+
+  simulant_tree_model* model();
 
   int tick_time() const;
 
@@ -164,12 +166,17 @@ protected:
 
   template <class T>
   void init(T& ptr, QString child_name) {
+    /*
     ptr = parent_->findChild<T>(child_name);
     assert(ptr != nullptr);
+    */
+    ptr = new typename std::remove_pointer<T>::type(parent_);
+    ptr->setObjectName(child_name);
+    ptr->hide();
   }
 
   environment* env_;
-  QObject* parent_;
+  QWidget* parent_;
   QString name_;
   caf::intrusive_ptr<simulant> simulant_;
 

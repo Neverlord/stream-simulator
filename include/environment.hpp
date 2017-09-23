@@ -10,8 +10,7 @@
 #include "caf/fwd.hpp"
 
 #include "entity.hpp"
-
-class MainWindow;
+#include "mainwindow.hpp"
 
 /// Top-level Qt object for the simulation. Contains the CAF actor system.
 class environment : public QObject {
@@ -37,6 +36,24 @@ public:
     return ptr;
   }
 
+  /// Returns an existing entity or creates a new entity if necessary.
+  template <class T, class... Ts>
+  T* get_entity(QWidget* parent, const QString& id, Ts&&... xs) {
+    assert(!running_);
+    T* ptr = nullptr;
+    auto base_ptr = entity_by_id(id);
+    if (base_ptr == nullptr) {
+      ptr = new T(this, parent, id, std::forward<Ts>(xs)...);
+      entities_.emplace_back(ptr);
+    } else {
+      ptr = dynamic_cast<T*>(base_ptr);
+      if (!ptr)
+        throw std::logic_error("Cannot create entity twice "
+                               "with different type.");
+    }
+    return ptr;
+  }
+
   inline const entities_vec& entities() const {
     return entities_;
   }
@@ -45,12 +62,18 @@ public:
     return sys_;
   }
 
+  entity* entity_by_id(const QString& x) const;
+
   entity* entity_by_handle(const caf::actor_addr& x) const;
 
   QString id_by_handle(const caf::actor_addr& x) const;
 
   inline QString id_by_handle(const caf::strong_actor_ptr& x) const {
     return id_by_handle(caf::actor_cast<caf::actor_addr>(x));
+  }
+
+  inline bool has_entity(const QString& id) const {
+    return entity_by_id(id) != nullptr;
   }
 
 public slots:
@@ -66,8 +89,7 @@ private:
   caf::actor_system& sys_;
   scheduler_type* sched_;
   entities_vec entities_;
-  // Convenience pointer to the main window (also stored in entities_).
-  MainWindow* main_window_;
+  std::unique_ptr<MainWindow> main_window_;
   bool running_;
 
   Q_OBJECT

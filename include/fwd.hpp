@@ -1,6 +1,9 @@
 #ifndef FWD_HPP
 #define FWD_HPP
 
+class node;
+class dag_widget;
+class edge;
 class entity;
 class gatherer;
 class receiver;

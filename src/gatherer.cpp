@@ -18,12 +18,12 @@ gatherer::path_ptr gatherer::add_path(const stream_id& sid, strong_actor_ptr x,
                                       strong_actor_ptr original_stage,
                                       stream_priority prio, long available_credit,
                                       bool redeployable, response_promise result_cb) {
-
+  return nullptr;
 }
 
 bool gatherer::remove_path(const stream_id& sid, const actor_addr& x,
                            error reason, bool silent) {
-
+  return false;
 }
 
 void gatherer::close(message result) {}

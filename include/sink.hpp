@@ -31,7 +31,7 @@
 
 class sink : virtual public entity {
 public:
-  sink(environment* env, QObject* parent, QString name);
+  sink(environment* env, QWidget* parent, QString name);
 
   ~sink() override;
 
