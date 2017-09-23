@@ -1,5 +1,6 @@
 #include "simulant_tree_model.hpp"
 
+#include "qstr.hpp"
 #include "entity.hpp"
 #include "simulant.hpp"
 
@@ -19,7 +20,14 @@ Qt::ItemFlags simulant_tree_model::flags(const QModelIndex&) const {
   return Qt::ItemIsSelectable;
 }
 
-QVariant simulant_tree_model::headerData(int, Qt::Orientation, int) const {
+QVariant simulant_tree_model::headerData(int section, Qt::Orientation,
+                                         int role) const {
+  if (role != Qt::DisplayRole)
+    return {};
+  if (section == 0)
+    return qstr("Field");
+  else if (section == 1)
+    return qstr("Value");
   return {};
 }
 

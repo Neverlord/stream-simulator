@@ -48,10 +48,6 @@ void source::start() {
       //val(credit_, static_cast<int>(out().credit()));
       if (at_max(send_progress_)) {
         auto batch_size = val(send_progress_);
-std::cout << "send_progress_ at max, sending batch!"
-          << "batch_size: " << batch_size << std::endl
-          << "n: " << n << std::endl
-          << std::endl;
         assert(batch_size > 0);
         assert(batch_size <= static_cast<int>(n));
         for (int i = 0; i < batch_size; ++i)
