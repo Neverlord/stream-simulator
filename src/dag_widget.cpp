@@ -45,6 +45,11 @@ void dag_widget::selected(node* x) {
   tv->expandAll();
 }
 
+void dag_widget::resizeEvent(QResizeEvent* event) {
+  centerize_dag();
+  super::resizeEvent(event);
+}
+
 void dag_widget::keyPressEvent(QKeyEvent* event) {
   switch (event->key()) {
     case Qt::Key_Up:
@@ -59,12 +64,6 @@ void dag_widget::keyPressEvent(QKeyEvent* event) {
     case Qt::Key_Right:
       centernode->moveBy(20, 0);
       break;
-    case Qt::Key_Plus:
-      zoomIn();
-      break;
-    case Qt::Key_Minus:
-      zoomOut();
-      break;
     case Qt::Key_Space:
     case Qt::Key_Enter:
       shuffle();
@@ -76,7 +75,7 @@ void dag_widget::keyPressEvent(QKeyEvent* event) {
 
 void dag_widget::timerEvent(QTimerEvent*) {
   std::vector<node*> nodes;
-  foreach (QGraphicsItem* item, scene()->items()) {
+  for (auto item : scene()->items()) {
     auto ptr = qgraphicsitem_cast<node*>(item);
     if (ptr)
       nodes.emplace_back(ptr);
@@ -87,17 +86,19 @@ void dag_widget::timerEvent(QTimerEvent*) {
   for (auto x : nodes)
     if (x->advance())
       itemsMoved = true;
-  if (!itemsMoved) {
+  if (itemsMoved) {
+    centerize_dag();
+  } else {
     killTimer(timerId);
     timerId = 0;
   }
 }
 
 void dag_widget::wheelEvent(QWheelEvent* event) {
-  scaleView(pow((double)2, -event->delta() / 240.0));
+  //scaleView(pow((double)2, -event->delta() / 240.0));
 }
 
-void dag_widget::drawBackground(QPainter*, const QRectF&) {
+void dag_widget::drawBackground(QPainter* painter, const QRectF& rect) {
   /*
   // Shadow
   QRectF sceneRect = this->sceneRect();
@@ -132,6 +133,11 @@ void dag_widget::drawBackground(QPainter*, const QRectF&) {
   painter->setPen(Qt::black);
   painter->drawText(textRect, message);
   */
+  super::drawBackground(painter, rect);
+}
+
+void dag_widget::drawForeground(QPainter* painter, const QRectF& rect) {
+  super::drawForeground(painter, rect);
 }
 
 void dag_widget::scaleView(qreal scaleFactor) {
@@ -141,15 +147,24 @@ void dag_widget::scaleView(qreal scaleFactor) {
                    .width();
   if (factor < 0.07 || factor > 100)
     return;
-
   scale(scaleFactor, scaleFactor);
 }
 
 void dag_widget::shuffle() {
-  foreach (QGraphicsItem* item, scene()->items()) {
+  for (auto item : scene()->items()) {
     if (qgraphicsitem_cast<node*>(item))
       item->setPos(-150 + qrand() % 300, -150 + qrand() % 300);
   }
+  centerize_dag();
+  /*
+  auto br = scene()->itemsBoundingRect();
+  scene()->setSceneRect(br);
+  auto s = size();
+  auto width = static_cast<qreal>(s.width());
+  auto height = static_cast<qreal>(s.height());
+  auto sf = std::min(width / br.width(), height / br.height());
+  scaleView(sf);
+  */
 }
 
 void dag_widget::zoomIn() {
@@ -158,4 +173,11 @@ void dag_widget::zoomIn() {
 
 void dag_widget::zoomOut() {
   scaleView(1 / qreal(1.2));
+}
+
+void dag_widget::centerize_dag() {
+  auto br = scene()->itemsBoundingRect();
+  setSceneRect(br);
+  fitInView(br.x() - 4, br.y() - 4, br.width() + 8, br.height() + 8,
+            Qt::KeepAspectRatio);
 }

@@ -22,20 +22,12 @@
 #include "caf/stream.hpp"
 
 #include "environment.hpp"
+#include "entity_details.hpp"
+#include "qstr.hpp"
 
 sink::sink(environment* env, QWidget* parent, QString name)
     : entity(env, parent, name) {
-  init(credit_per_interval_, name + "CreditPerInterval");
-  init(ticks_per_item_, name + "TicksPerItem");
-  init(batch_size_, name + "BatchSize");
-  init(item_progress_, name + "ItemProgress");
-  init(batch_progress_, name + "BatchProgress");
-  init(mailbox_, name + "Mailbox");
-  init(current_sender_, name + "CurrentSender");
-  init(pending_, name + "Pending");
-  init(pending_avg_, name + "PendingAVG");
-  init(latency_, name + "Latency");
-  init(latency_avg_, name + "LatencyAVG");
+  // nop
 }
 
 sink::~sink() {
@@ -43,6 +35,8 @@ sink::~sink() {
 }
 
 void sink::start() {
+  dialog_->drop_stage_widgets();
+  dialog_->drop_source_widgets();
   simulant_->become(
     [=](const caf::stream<int>& in) {
       if (!simulant_->streams().empty()) {
@@ -59,13 +53,20 @@ void sink::start() {
           // nop
         },
         [=](caf::unit_t&, int) {
-          if (state_ != consume_batch) {
-            state_ = consume_batch;
-            text(current_sender_,
-                 env_->id_by_handle(simulant_->current_sender()));
-            reset(batch_progress_, 0, 1);
-          } else {
-            inc_max(batch_progress_);
+          if (text(dialog_->current_sender).isEmpty()) {
+            auto me = simulant_->current_mailbox_element();
+            text(dialog_->current_sender, env_->id_by_handle(me->sender));
+            auto& sm = me->content().get_as<caf::stream_msg>(0);
+            auto& op = caf::get<caf::stream_msg::batch>(sm.content);
+            max(dialog_->batch_progress, static_cast<int>(op.xs_size));
+            yield();
+          }
+          progress(dialog_->item_progress, 0, val(dialog_->ticks_per_item));
+          inc(dialog_->batch_progress);
+          if (at_max(dialog_->batch_progress)) {
+            yield();
+            text(dialog_->current_sender, qstr(""));
+            reset(dialog_->batch_progress, 0, 1);
           }
         },
         [](caf::unit_t&) {
@@ -75,38 +76,4 @@ void sink::start() {
     }
   );
   simulant_->model()->update();
-}
-
-void sink::tick() {
-  switch (state_) {
-    default:
-      break;
-    case read_mailbox:
-      state_ = idle;
-      resume_simulant();
-      break;
-    case consume_batch:
-      consume_batch_impl();
-      break;
-  }
-  if (last_state_ != state_ && state_ == consume_batch) {
-    val(batch_size_, max(batch_progress_));
-  } else if (last_state_ == idle && state_ == idle && at_max(batch_progress_)) {
-    val(batch_progress_, 0);
-    val(batch_size_, 0);
-  }
-}
-
-bool sink::consume_batch_impl() {
-  inc(item_progress_);
-  if (at_max(item_progress_)) {
-    //upstream_[text(current_sender_)].rate += 1;
-    reset(item_progress_, 0, val(ticks_per_item_));
-    inc(batch_progress_);
-    if (at_max(batch_progress_)) {
-      state_ = idle;
-    }
-    return true;
-  }
-  return false;
 }

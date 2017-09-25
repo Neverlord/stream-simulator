@@ -139,12 +139,19 @@ QVariant node::itemChange(GraphicsItemChange change, const QVariant& value) {
 }
 
 void node::mousePressEvent(QGraphicsSceneMouseEvent* event) {
+  if (event->button() == Qt::RightButton) {
+    QGraphicsItem::mousePressEvent(event);
+    return;
+  }
   widget_->selected(this);
   update();
   QGraphicsItem::mousePressEvent(event);
 }
 
 void node::mouseReleaseEvent(QGraphicsSceneMouseEvent* event) {
+  if (event->button() == Qt::RightButton) {
+    entity_->show_dialog();
+  }
   update();
   QGraphicsItem::mouseReleaseEvent(event);
 }

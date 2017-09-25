@@ -20,7 +20,9 @@
 #ifndef ENTITY_HPP
 #define ENTITY_HPP
 
+#include <vector>
 #include <cassert>
+#include <functional>
 
 #include <QObject>
 #include <QString>
@@ -37,8 +39,7 @@ public:
   enum state_t {
     idle,
     read_mailbox,
-    consume_batch,
-    produce_batch
+    resume_simulant
   };
 
   entity(environment* env, QWidget* parent, QString name);
@@ -52,7 +53,7 @@ public:
   virtual void before_tick();
 
   /// Advances time by one step.
-  virtual void tick() = 0;
+  virtual void tick();
 
   /// Cleans up any open state from the current tick.
   virtual void after_tick();
@@ -84,8 +85,7 @@ public:
   /// Returns `true` if at least one message is waiting in the mailbox.
   bool mailbox_ready();
 
-  /// Lets the simulant read and process the next message in the mailbox.
-  void resume_simulant();
+  void show_dialog();
 
 protected:
   template <class T>
@@ -164,21 +164,84 @@ protected:
     val(obj, value);
   }
 
-  template <class T>
-  void init(T& ptr, QString child_name) {
-    /*
-    ptr = parent_->findChild<T>(child_name);
-    assert(ptr != nullptr);
-    */
-    ptr = new typename std::remove_pointer<T>::type(parent_);
-    ptr->setObjectName(child_name);
-    ptr->hide();
+  void progress(QProgressBar* bar, int first, int last);
+
+  template <class F>
+  void progress(QProgressBar* bar, int first, int last, F f) {
+    if (first == last) {
+      val(bar, 0);
+      return;
+    }
+    max(bar, last);
+    for (int i = first; i != last; ++i) {
+      val(bar, i);
+      f(i);
+      yield();
+    }
+    val(bar, last);
+  }
+
+  template <class Int, class F>
+  std::enable_if_t<std::is_integral<Int>::value>
+  loop(Int first, Int last, F f) {
+    for (Int i = first; i != last; ++i) {
+      f(i);
+      yield();
+    }
+  }
+
+  template <class Iter, class F>
+  std::enable_if_t<!std::is_integral<Iter>::value>
+  loop(Iter first, Iter last, F f) {
+    for (Iter i = first; i != last; ++i) {
+      f(*i);
+      yield();
+    }
   }
 
   environment* env_;
   QWidget* parent_;
+  entity_details* dialog_;
   QString name_;
+
+  // Our actor under test.
   caf::intrusive_ptr<simulant> simulant_;
+
+  std::mutex simulant_mx_;
+
+  // Used to execute simulant_->resume in order to gain fine-grained control
+  // over the execution of simulant_. This control is used to block-and-resume
+  // the simulant's handling of stream messages.
+  std::thread simulant_thread_;
+
+  // Allows waiting for simulant_resume_.
+  std::condition_variable simulant_resume_cv_;
+
+  // Necessary guard for simulant_resume_cv_.
+  std::unique_lock<std::mutex>* simulant_resume_guard_;
+
+  enum simulant_thread_state {
+    sts_none,     // Signals the entity that simulant_thread_ is invalid.
+    sts_resume,   // Signals the simulant_thread_ to continue.
+    sts_yield,    // Signals the entity to continue.
+    sts_finalize, // Signals the entity to join and destroy simulant_thread_.
+    sts_abort     // Signals the simulant_thread_ to throw.
+  };
+
+  // Signals the entity to resume the simulant next tick.
+  std::atomic<simulant_thread_state> simulant_thread_state_;
+
+  // Allows waiting for simulant_yield_.
+  std::condition_variable simulant_yield_cv_;
+
+  // Transfers control from the simulant thread back to the entity.
+  void yield();
+
+  // Transers control from the entity to the simulant thread.
+  void resume();
+
+  // Delegates processing of the next mailbox element via simulant_thread_.
+  void start_handling_next_message();
 
   /// Can be set by `before_tick` to cause `tick` to resume the simulant.
   state_t state_;

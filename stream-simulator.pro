@@ -28,7 +28,8 @@ SOURCES += \
     src/simulant_tree_item.cpp \
     src/dag_widget.cpp \
     src/edge.cpp \
-    src/node.cpp
+    src/node.cpp \
+    src/entity_details.cpp
 
 HEADERS += \
     include/mainwindow.hpp \
@@ -46,7 +47,9 @@ HEADERS += \
     include/qstr.hpp \
     include/dag_widget.hpp \
     include/edge.hpp \
-    include/node.hpp
+    include/node.hpp \
+    include/entity_details.hpp
 
 FORMS += \
-    ui/mainwindow.ui
+    ui/mainwindow.ui \
+    ui/entity_details.ui

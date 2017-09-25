@@ -25,24 +25,15 @@
 #include "caf/stream.hpp"
 
 #include "environment.hpp"
+#include "entity_details.hpp"
+#include "qstr.hpp"
 
 stage::stage(environment* env, QWidget* parent, QString name)
     : entity(env, parent, name),
       source(env, parent, name),
       sink(env, parent, name),
       completed_items_(0) {
-  init(ratio_in_, name + "RatioIn");
-  init(ratio_out_, name + "RatioOut");
-  init(output_buffer_, name + "OutputBuffer");
-  // Hide widgets inherited from source that aren't used.
-  item_generation_->hide();
-  QLabel* lbl1 = nullptr;
-  init(lbl1, name + "ItemGenerationLabel");
-  lbl1->hide();
-  rate_->hide();
-  QLabel* lbl2 = nullptr;
-  init(lbl2, name + "RateLabel");
-  lbl2->hide();
+  // nop
 }
 
 stage::~stage() {
@@ -50,6 +41,7 @@ stage::~stage() {
 }
 
 void stage::start() {
+  dialog_->drop_source_only_widgets();
   simulant_->become(
     [=](const caf::stream<int>& in) {
       auto& stages = simulant_->current_mailbox_element()->stages;
@@ -69,68 +61,31 @@ void stage::start() {
           // nop
         },
         [=](caf::unit_t&, caf::downstream<int>& out, int) {
-          if (out_ == nullptr)
-            out_.reset(new caf::downstream<int>(out.buf()));
-          if (state_ != consume_batch) {
-            state_ = consume_batch;
-            text(current_sender_,
-                 env_->id_by_handle(simulant_->current_sender()));
-            enable(batch_progress_);
-            reset(batch_progress_, 0, 1);
-          } else {
-            inc_max(batch_progress_);
+          if (text(dialog_->current_sender).isEmpty()) {
+            auto me = simulant_->current_mailbox_element();
+            text(dialog_->current_sender, env_->id_by_handle(me->sender));
+            auto& sm = me->content().get_as<caf::stream_msg>(0);
+            auto& op = caf::get<caf::stream_msg::batch>(sm.content);
+            max(dialog_->batch_progress, static_cast<int>(op.xs_size));
+            yield();
+          }
+          progress(dialog_->item_progress, 0, val(dialog_->ticks_per_item));
+          inc(dialog_->batch_progress);
+          if (++completed_items_ >= val(dialog_->ratio_in)) {
+            completed_items_ = 0;
+            for (int i = 0; i < val(dialog_->ratio_out); ++i)
+              out.push(i);
+          }
+          if (at_max(dialog_->batch_progress)) {
+            text(dialog_->current_sender, qstr(""));
+            reset(dialog_->batch_progress, 0, 1);
           }
         },
         [](caf::unit_t&) {
           // nop
         }
       ).ptr();
-      val(credit_, static_cast<int>(stream_manager_->out().credit()));
     }
   );
   simulant_->model()->update();
-}
-
-void stage::before_tick() {
-  if (state_ == idle && mailbox_ready())
-    state_ = read_mailbox;
-}
-
-void stage::tick() {
-  switch (state_) {
-    default:
-      break;
-    case read_mailbox:
-      state_ = idle;
-      resume_simulant();
-      break;
-    case consume_batch:
-      if (consume_batch_impl()) {
-        ++completed_items_;
-        if (completed_items_ >= val(ratio_in_)) {
-          completed_items_ = 0;
-          for (auto i = 0; i < val(ratio_out_); ++i)
-            out_->push(i);
-        }
-        // State transition only occurrs when a batch has been completed.
-        if (state_ == idle)
-          stream_manager_->out().emit_batches();
-      }
-      break;
-  }
-  if (last_state_ != state_ && state_ == consume_batch) {
-    val(batch_size_, max(batch_progress_));
-  } else if (last_state_ == idle && state_ == idle && at_max(batch_progress_)) {
-    val(batch_progress_, 0);
-    val(batch_size_, 0);
-  }
-}
-
-void stage::after_tick() {
-  simulant_->model()->update();
-}
-
-void stage::tock() {
-  sink::tock();
-  source::tock();
 }

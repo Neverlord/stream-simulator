@@ -35,26 +35,7 @@ public:
 
   ~sink() override;
 
-  void tick() override;
-
   void start() override;
-
-protected:
-  /// Returns `true` if an item was consumed. Additionally sets `state_` to
-  /// `idle` when the batch was completed.
-  bool consume_batch_impl();
-
-  QSpinBox* credit_per_interval_;
-  QSpinBox* ticks_per_item_;
-  QSpinBox* batch_size_;
-  QProgressBar* item_progress_;
-  QProgressBar* batch_progress_;
-  QListWidget* mailbox_;
-  QLabel* current_sender_;
-  QSpinBox* pending_;
-  QSpinBox* pending_avg_;
-  QSpinBox* latency_;
-  QSpinBox* latency_avg_;
 };
 
 #endif // SINK_HPP

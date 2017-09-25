@@ -15,5 +15,6 @@ class stage;
 class environment;
 class simulant_tree_item;
 class simulant_tree_model;
+class entity_details;
 
 #endif // FWD_HPP

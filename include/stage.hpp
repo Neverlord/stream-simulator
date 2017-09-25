@@ -29,22 +29,10 @@ class stage : public source, public sink {
 
   ~stage();
 
-  void before_tick() override;
-
-  void tick() override;
-
-  void after_tick() override;
-
-  void tock() override;
-
   void start() override;
 
 private:
-  QSpinBox* ratio_in_;
-  QSpinBox* ratio_out_;
-  QSpinBox* output_buffer_;
   int completed_items_;
-  std::unique_ptr<caf::downstream<int>> out_;
 };
 
 #endif // STAGE_HPP

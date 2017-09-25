@@ -25,11 +25,13 @@
 
 #include "qstr.hpp"
 #include "environment.hpp"
+#include "entity_details.hpp"
 
 entity::entity(environment* env, QWidget* parent, QString name)
   : env_(env),
     parent_(parent),
     name_(name),
+    simulant_thread_state_(sts_none),
     state_(idle),
     last_state_(idle) {
   using storage = caf::actor_storage<simulant>;
@@ -37,19 +39,39 @@ entity::entity(environment* env, QWidget* parent, QString name)
   caf::actor_config cfg;
   auto ptr = new storage(sys.next_actor_id(), sys.node(), &sys, cfg, this);
   simulant_.reset(&ptr->data, false);
-  auto tv = parent_->findChild<QTreeView*>(name_ + "StateTree");
-  if (tv) {
-    tv->setModel(simulant_->model());
-  }
+  // Parent takes ownership of dialog_.
+  dialog_ = new entity_details(parent);
+  dialog_->id->setText(name);
+  dialog_->state->setModel(simulant_->model());
 }
 
 entity::~entity() {
-  // nop
+  if (simulant_thread_state_ != sts_none) {
+    { // lifetime scope of guard
+      std::unique_lock<std::mutex> guard{simulant_mx_};
+      simulant_thread_state_ = sts_abort;
+      simulant_resume_cv_.notify_one();
+    }
+    simulant_thread_.join();
+  }
 }
 
 void entity::before_tick() {
   if (state_ == idle && mailbox_ready())
     state_ = read_mailbox;
+}
+
+void entity::tick() {
+  switch (state_) {
+    default:
+      break;
+    case read_mailbox:
+      state_ = idle;
+      start_handling_next_message();
+      break;
+    case resume_simulant:
+      resume();
+  }
 }
 
 void entity::after_tick() {
@@ -111,8 +133,7 @@ struct render_mailbox_visitor {
 
 void entity::render_mailbox() {
   using namespace caf;
-  QListWidget* lw = nullptr;
-  init(lw, name_ + "Mailbox");
+  auto lw = dialog_->mailbox;
   lw->setUpdatesEnabled(false);
   lw->clear();
   simulant_->iterate_mailbox([&](mailbox_element& x) {
@@ -135,11 +156,64 @@ bool entity::mailbox_ready() {
   return !simulant_->mailbox().closed() && !simulant_->mailbox().empty();
 }
 
-void entity::resume_simulant() {
+void entity::show_dialog() {
+  if (!dialog_->isVisible()) {
+    dialog_->show();
+    dialog_->raise();
+    dialog_->activateWindow();
+  }
+}
+
+void entity::progress(QProgressBar* bar, int first, int last) {
+  progress(bar, first, last, [](int) {});
+}
+
+void entity::yield() {
+  simulant_thread_state_ = sts_yield;
+  simulant_yield_cv_.notify_one();
+  simulant_thread_state st;
+  do {
+    simulant_resume_cv_.wait(*simulant_resume_guard_);
+    st = simulant_thread_state_.load();
+  } while (st == sts_yield);
+  if (st == sts_abort)
+    throw std::runtime_error("aborted");
+}
+
+void entity::resume() {
+  std::unique_lock<std::mutex> guard{simulant_mx_};
+  // Wait for the simulant in case it is still running.
+  while (simulant_thread_state_ == sts_resume)
+    simulant_yield_cv_.wait(guard);
+  simulant_thread_state_ = sts_resume;
+  simulant_resume_cv_.notify_one();
+  simulant_yield_cv_.wait(guard);
+  if (simulant_thread_state_ == sts_finalize) {
+    simulant_thread_.join();
+    simulant_thread_ = std::thread{};
+    simulant_thread_state_ = sts_none;
+    state_ = idle;
+  } else if (state_ != resume_simulant) {
+    state_ = resume_simulant;
+  }
+  //dialog_->update();
+}
+
+void entity::start_handling_next_message() {
   if (!mailbox_ready())
     return;
-  simulant_->resume(env_->sys().dummy_execution_unit(), 1);
-  render_mailbox();
+  delete dialog_->mailbox->takeItem(0);
+  assert(simulant_thread_state_ == sts_none);
+  simulant_thread_ = std::thread{[=] {
+    std::unique_lock<std::mutex> guard{simulant_mx_};
+    while (simulant_thread_state_ != sts_resume)
+      simulant_resume_cv_.wait(guard);
+    simulant_resume_guard_ = &guard;
+    simulant_->resume(env_->sys().dummy_execution_unit(), 1);
+    simulant_thread_state_ = sts_finalize;
+    simulant_yield_cv_.notify_one();
+  }};
+  resume();
 }
 
 namespace {

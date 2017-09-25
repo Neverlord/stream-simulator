@@ -10,6 +10,8 @@ class dag_widget : public QGraphicsView {
   Q_OBJECT
 
 public:
+  using super = QGraphicsView;
+
   dag_widget(QWidget* parent = 0);
 
   void itemMoved();
@@ -26,14 +28,18 @@ public slots:
   void zoomOut();
 
 protected:
+  void resizeEvent(QResizeEvent* event) override;
   void keyPressEvent(QKeyEvent* event) override;
   void timerEvent(QTimerEvent* event) override;
   void wheelEvent(QWheelEvent* event) override;
   void drawBackground(QPainter* painter, const QRectF& rect) override;
+  void drawForeground(QPainter* painter, const QRectF& rect) override;
 
   void scaleView(qreal scaleFactor);
 
 private:
+  void centerize_dag();
+
   int timerId;
   node* centernode;
   node* selected_;
