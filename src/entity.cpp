@@ -77,6 +77,10 @@ void entity::tick() {
 void entity::after_tick() {
   simulant_->model()->update();
   last_state_ = state_;
+  if (refresh_mailbox_) {
+    refresh_mailbox_ = false;
+    render_mailbox();
+  }
 }
 
 void entity::tock() {

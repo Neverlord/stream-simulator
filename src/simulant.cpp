@@ -29,7 +29,7 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
   switch (mailbox().enqueue(ptr.release())) {
     case caf::detail::enqueue_result::unblocked_reader: {
       CAF_LOG_ACCEPT_EVENT(true);
-      parent_->render_mailbox();
+      parent_->refresh_mailbox();
       break;
     }
     case caf::detail::enqueue_result::queue_closed: {
@@ -43,7 +43,7 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
     case caf::detail::enqueue_result::success:
       // enqueued to a running actors' mailbox; nothing to do
       CAF_LOG_ACCEPT_EVENT(false);
-      parent_->render_mailbox();
+      parent_->refresh_mailbox();
       break;
   }
 }

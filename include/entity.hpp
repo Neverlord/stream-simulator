@@ -87,6 +87,10 @@ public:
 
   void show_dialog();
 
+  inline void refresh_mailbox() {
+    refresh_mailbox_ = true;
+  }
+
 protected:
   template <class T>
   static int val(const T* obj) {
@@ -248,6 +252,9 @@ protected:
 
   /// Allows the entity to detect state transitions.
   state_t last_state_;
+
+  /// Informs the entity to redraw its mailbox.
+  std::atomic<bool> refresh_mailbox_;
 };
 
 const char* to_string(entity::state_t x);
