@@ -27,6 +27,17 @@
 #include "environment.hpp"
 #include "entity_details.hpp"
 
+namespace {
+
+class cancel_entity_thread : public std::exception {
+public:
+  const char* what() const noexcept override {
+    return "entity aborted thread execution";
+  }
+};
+
+} // namespace <anonymous>
+
 entity::entity(environment* env, QWidget* parent, QString name)
   : env_(env),
     parent_(parent),
@@ -181,7 +192,7 @@ void entity::yield() {
     st = simulant_thread_state_.load();
   } while (st == sts_yield);
   if (st == sts_abort)
-    throw std::runtime_error("aborted");
+    throw cancel_entity_thread();
 }
 
 void entity::resume() {
@@ -213,9 +224,13 @@ void entity::start_handling_next_message() {
     while (simulant_thread_state_ != sts_resume)
       simulant_resume_cv_.wait(guard);
     simulant_resume_guard_ = &guard;
-    simulant_->resume(env_->sys().dummy_execution_unit(), 1);
-    simulant_thread_state_ = sts_finalize;
-    simulant_yield_cv_.notify_one();
+    try {
+      simulant_->resume(env_->sys().dummy_execution_unit(), 1);
+      simulant_thread_state_ = sts_finalize;
+      simulant_yield_cv_.notify_one();
+    } catch (cancel_entity_thread&) {
+      // nop
+    }
   }};
   resume();
 }
