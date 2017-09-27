@@ -8,6 +8,8 @@
 
 class simulant : public caf::scheduled_actor {
 public:
+  using super = caf::scheduled_actor;
+
   using behavior_type = caf::behavior;
 
   simulant(caf::actor_config& cfg, entity* parent);
@@ -15,6 +17,8 @@ public:
   using caf::scheduled_actor::enqueue;
 
   void enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) override;
+
+  resume_result resume(caf::execution_unit*, size_t) override;
 
   template <class F>
   void iterate_mailbox(F f) {

@@ -48,7 +48,8 @@ HEADERS += \
     include/dag_widget.hpp \
     include/edge.hpp \
     include/node.hpp \
-    include/entity_details.hpp
+    include/entity_details.hpp \
+    include/tick_time.hpp
 
 FORMS += \
     ui/mainwindow.ui \

@@ -5,12 +5,24 @@
 
 #include "caf/stream.hpp"
 #include "caf/stream_manager.hpp"
+#include "caf/mailbox_element.hpp"
 
 #include "caf/detail/sync_request_bouncer.hpp"
 
 #include "qstr.hpp"
 #include "entity.hpp"
 #include "environment.hpp"
+
+namespace {
+
+bool is_batch(caf::mailbox_element* ptr) {
+  if (!ptr->content().match_elements<caf::stream_msg>())
+    return false;
+  auto& sm = ptr->content().get_as<caf::stream_msg>(0);
+  return caf::holds_alternative<caf::stream_msg::batch>(sm.content);
+}
+
+} // namespace <anonymous>
 
 simulant::simulant(caf::actor_config& cfg, entity* parent)
   : caf::scheduled_actor(cfg),
@@ -26,26 +38,46 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
   CAF_LOG_SEND_EVENT(ptr);
   auto mid = ptr->mid;
   auto sender = ptr->sender;
-  switch (mailbox().enqueue(ptr.release())) {
-    case caf::detail::enqueue_result::unblocked_reader: {
-      CAF_LOG_ACCEPT_EVENT(true);
-      parent_->refresh_mailbox();
-      break;
-    }
+  auto raw_ptr = ptr.release();
+  switch (mailbox().enqueue(raw_ptr)) {
     case caf::detail::enqueue_result::queue_closed: {
       CAF_LOG_REJECT_EVENT();
       if (mid.is_request()) {
         caf::detail::sync_request_bouncer f{caf::exit_reason::unknown};
         f(sender, mid);
       }
+      // message was dropped, don't register as in-flight
+      return;
+    }
+    case caf::detail::enqueue_result::unblocked_reader: {
+      CAF_LOG_ACCEPT_EVENT(true);
       break;
     }
     case caf::detail::enqueue_result::success:
       // enqueued to a running actors' mailbox; nothing to do
       CAF_LOG_ACCEPT_EVENT(false);
-      parent_->refresh_mailbox();
-      break;
   }
+  if (is_batch(raw_ptr))
+    parent_->env()->register_in_flight_message(parent_, raw_ptr);
+  parent_->refresh_mailbox();
+}
+
+simulant::resume_result simulant::resume(caf::execution_unit* eu, size_t num) {
+  for (size_t i = 0; i < num; ++i) {
+    auto next = mailbox().peek();
+    if (next == nullptr)
+      return awaiting_message;
+    if (is_batch(next))
+      parent_->env()->deregister_in_flight_message(parent_, next);
+    auto res = super::resume(eu, 1u);
+    switch (res) {
+      case resume_later:
+        break;
+      default:
+        return res;
+    }
+  }
+  return resume_later;
 }
 
 namespace {

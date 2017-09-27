@@ -39,9 +39,9 @@ MainWindow::MainWindow(environment* env, QWidget *parent) :
     timer(new QTimer(this)) {
   // UI and signal/slot setup
   setupUi(this);
-  connect(ticksPerSecond, SIGNAL(valueChanged(int)),
+  connect(ticks_per_second, SIGNAL(valueChanged(int)),
           this, SLOT(manual_tick_count_changed(int)));
-  connect(manualTick, SIGNAL(pressed()),
+  connect(manual_tick, SIGNAL(pressed()),
           this, SIGNAL(manual_tick_triggered()));
   connect(timer, SIGNAL(timeout()),
           this, SIGNAL(tick_triggered()));
@@ -61,7 +61,6 @@ void MainWindow::before_tick() {
 }
 
 void MainWindow::tick() {
-  interval->setValue(interval->value() + 1);
   ticks->setValue(ticks->value() + 1);
 }
 
@@ -70,16 +69,15 @@ void MainWindow::after_tick() {
 }
 
 void MainWindow::tock() {
-  interval->setValue(0);
-  interval->setMaximum(ticksPerInterval->value());
+  // nop
 }
 
 void MainWindow::manual_tick_count_changed(int x) {
   if (x == 0) {
-    manualTick->setEnabled(true);
+    manual_tick->setEnabled(true);
     timer->stop();
   } else {
-    manualTick->setEnabled(false);
+    manual_tick->setEnabled(false);
     timer->start(1000 / x);
   }
 }
