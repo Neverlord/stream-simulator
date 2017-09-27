@@ -34,8 +34,10 @@
 #include "simulant.hpp"
 
 /// An `entity` in a simulation.
-class entity {
+class entity : public QObject {
 public:
+  friend class simulant;
+
   enum state_t {
     idle,
     read_mailbox,
@@ -76,8 +78,6 @@ public:
 
   simulant_tree_model* model();
 
-  int tick_time() const;
-
   void render_mailbox();
 
   caf::actor handle();
@@ -90,6 +90,23 @@ public:
   inline void refresh_mailbox() {
     refresh_mailbox_ = true;
   }
+
+  inline bool started() const {
+    return started_;
+  }
+
+signals:
+  /// Signals that no operation was performed during a tick interval.
+  void idling();
+
+  /// Signals that a new message was received.
+  /// @param id Ascending counter for unambiguous message identification.
+  void message_received(int id, caf::strong_actor_ptr from,
+                        caf::message content);
+
+  /// Signals that a messages was consumed.
+  /// @param id Ascending counter for unambiguous message identification.
+  void message_consumed(int id);
 
 protected:
   template <class T>
@@ -255,6 +272,22 @@ protected:
 
   /// Informs the entity to redraw its mailbox.
   std::atomic<bool> refresh_mailbox_;
+
+  /// Stores whether an entity started stream processing. A sink sets this flag
+  /// to true when receiving the first batch.
+  bool started_;
+
+private:
+  template <class F>
+  void post(F f) {
+    simulant_events_.emplace_back(std::move(f));
+  }
+
+  /// Callbacks from the simulant's thread for running in the entity's thread
+  /// after the simulant called `yield()`.
+  std::vector<std::function<void()>> simulant_events_;
+
+  Q_OBJECT
 };
 
 const char* to_string(entity::state_t x);

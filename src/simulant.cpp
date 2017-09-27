@@ -57,9 +57,16 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
       // enqueued to a running actors' mailbox; nothing to do
       CAF_LOG_ACCEPT_EVENT(false);
   }
+  auto local_mid = ++msg_ids_;
+  auto msg = raw_ptr->copy_content_to_message();
+  parent_->post([=] {
+    emit parent_->message_received(local_mid, sender, msg);
+  });
+  /*
   if (is_batch(raw_ptr))
     parent_->env()->register_in_flight_message(parent_, raw_ptr);
   parent_->refresh_mailbox();
+  */
 }
 
 simulant::resume_result simulant::resume(caf::execution_unit* eu, size_t num) {

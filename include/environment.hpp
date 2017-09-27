@@ -126,7 +126,7 @@ public:
   tick_time deregister_in_flight_message(entity* receiver,
                                          caf::mailbox_element* msg);
 
-  /// Increases the recorded idle time for `x`.
+  /// Increases the recorded idle time for `x` if `x->started() == true`.
   void inc_idle_time(entity* x);
 
   // -- statistics of simulation metrics ---------------------------------------

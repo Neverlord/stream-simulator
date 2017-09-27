@@ -53,6 +53,8 @@ void sink::start() {
           // nop
         },
         [=](caf::unit_t&, int) {
+          if (!started_)
+            started_ = true;
           if (text(dialog_->current_sender).isEmpty()) {
             auto me = simulant_->current_mailbox_element();
             text(dialog_->current_sender, env_->id_by_handle(me->sender));

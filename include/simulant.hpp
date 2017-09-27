@@ -49,6 +49,7 @@ private:
 
   entity* parent_;
   simulant_tree_model model_;
+  std::atomic<int> msg_ids_;
 };
 
 void intrusive_ptr_add_ref(simulant*);

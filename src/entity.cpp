@@ -102,10 +102,6 @@ simulant_tree_model* entity::model() {
   return simulant_->model();
 }
 
-int entity::tick_time() const {
-  return parent_->findChild<QSpinBox*>("ticks")->value();
-}
-
 namespace {
 
 struct render_mailbox_visitor {
