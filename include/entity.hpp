@@ -32,6 +32,7 @@
 
 #include "fwd.hpp"
 #include "simulant.hpp"
+#include "critical_section.hpp"
 
 /// An `entity` in a simulation.
 class entity : public QObject {
@@ -78,8 +79,6 @@ public:
 
   simulant_tree_model* model();
 
-  void render_mailbox();
-
   caf::actor handle();
 
   /// Returns `true` if at least one message is waiting in the mailbox.
@@ -91,9 +90,13 @@ public:
     refresh_mailbox_ = true;
   }
 
+  /// Returns whether this entity started its task. This indicates
+  /// that batches are emitted for sources and received for sinks.
   inline bool started() const {
     return started_;
   }
+
+  void run_posted_events();
 
 signals:
   /// Signals that no operation was performed during a tick interval.
@@ -264,11 +267,11 @@ protected:
   // Delegates processing of the next mailbox element via simulant_thread_.
   void start_handling_next_message();
 
-  /// Can be set by `before_tick` to cause `tick` to resume the simulant.
+  /// Controls what code is executed during a tick.
   state_t state_;
 
-  /// Allows the entity to detect state transitions.
-  state_t last_state_;
+  /// Allows the entity to detect state transitions within one tick.
+  state_t before_tick_state_;
 
   /// Informs the entity to redraw its mailbox.
   std::atomic<bool> refresh_mailbox_;
@@ -280,12 +283,16 @@ protected:
 private:
   template <class F>
   void post(F f) {
-    simulant_events_.emplace_back(std::move(f));
+    critical_section(simulant_events_mtx_, [&] {
+      simulant_events_.emplace_back(std::move(f));
+    });
   }
 
   /// Callbacks from the simulant's thread for running in the entity's thread
   /// after the simulant called `yield()`.
-  std::vector<std::function<void()>> simulant_events_;
+  std::vector<std::function<void(entity*)>> simulant_events_;
+
+  std::mutex simulant_events_mtx_;
 
   Q_OBJECT
 };

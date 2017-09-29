@@ -4,9 +4,9 @@
 #include "entity.hpp"
 #include "simulant.hpp"
 
-simulant_tree_model::simulant_tree_model(simulant* parent)
+simulant_tree_model::simulant_tree_model(simulant* parent, QString root_id)
   : parent_(parent),
-    root_(this, nullptr, parent->parent()->id(), QString::fromUtf8("<actor>")) {
+    root_(this, nullptr, std::move(root_id), QString::fromUtf8("<actor>")) {
   // nop
 }
 

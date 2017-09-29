@@ -26,6 +26,7 @@
 #include "qstr.hpp"
 #include "environment.hpp"
 #include "entity_details.hpp"
+#include "critical_section.hpp"
 
 namespace {
 
@@ -44,32 +45,33 @@ entity::entity(environment* env, QWidget* parent, QString name)
     name_(name),
     simulant_thread_state_(sts_none),
     state_(idle),
-    last_state_(idle) {
+    before_tick_state_(idle) {
   using storage = caf::actor_storage<simulant>;
   auto& sys = env->sys();
   caf::actor_config cfg;
   auto ptr = new storage(sys.next_actor_id(), sys.node(), &sys, cfg, this);
   simulant_.reset(&ptr->data, false);
   // Parent takes ownership of dialog_.
-  dialog_ = new entity_details(parent);
-  dialog_->id->setText(name);
+  dialog_ = new entity_details(this);
+  dialog_->setWindowTitle(name);
   dialog_->state->setModel(simulant_->model());
 }
 
 entity::~entity() {
   if (simulant_thread_state_ != sts_none) {
-    { // lifetime scope of guard
-      std::unique_lock<std::mutex> guard{simulant_mx_};
+    critical_section(simulant_mx_, [&] {
       simulant_thread_state_ = sts_abort;
       simulant_resume_cv_.notify_one();
-    }
+    });
     simulant_thread_.join();
   }
+  simulant_->detach_from_parent();
 }
 
 void entity::before_tick() {
   if (state_ == idle && mailbox_ready())
     state_ = read_mailbox;
+  before_tick_state_ = state_;
 }
 
 void entity::tick() {
@@ -86,12 +88,10 @@ void entity::tick() {
 }
 
 void entity::after_tick() {
+  run_posted_events();
   simulant_->model()->update();
-  last_state_ = state_;
-  if (refresh_mailbox_) {
-    refresh_mailbox_ = false;
-    render_mailbox();
-  }
+  if (started_ && before_tick_state_ == idle && state_ == idle)
+    emit idling();
 }
 
 void entity::tock() {
@@ -100,63 +100,6 @@ void entity::tock() {
 
 simulant_tree_model* entity::model() {
   return simulant_->model();
-}
-
-namespace {
-
-struct render_mailbox_visitor {
-  QListWidget* lw;
-  QString from;
-
-  void operator()(const caf::stream_msg::open& x) {
-    lw->addItem(qstr("From: %1 -> open with priority %2")
-                .arg(from)
-                .arg(qstr(to_string(x.priority))));
-  }
-
-  void operator()(const caf::stream_msg::ack_open& x) {
-    lw->addItem(qstr("From: %1 -> ack_open with %2 credit")
-                .arg(from)
-                .arg(qstr(x.initial_demand)));
-  }
-
-  void operator()(const caf::stream_msg::batch& x) {
-    lw->addItem(qstr("From: %1 -> batch #%2 of size %3")
-                .arg(from)
-                .arg(qstr(x.id))
-                .arg(qstr(x.xs_size)));
-  }
-
-  void operator()(const caf::stream_msg::ack_batch& x) {
-    lw->addItem(qstr("From: %1 -> ack_batch #%2 with %3 new credit")
-                .arg(from)
-                .arg(qstr(x.acknowledged_id))
-                .arg(qstr(x.new_capacity)));
-  }
-
-  template <class T>
-  void operator()(const T& x) {
-    lw->addItem(qstr("From: %1 -> %2").arg(from).arg(qstr(to_string(x))));
-  }
-};
-
-} // namespace <anonymous>
-
-void entity::render_mailbox() {
-  using namespace caf;
-  auto lw = dialog_->mailbox;
-  lw->setUpdatesEnabled(false);
-  lw->clear();
-  simulant_->iterate_mailbox([&](mailbox_element& x) {
-    if (x.content().match_elements<stream_msg>()) {
-      auto& sm = x.content().get_as<stream_msg>(0);
-      render_mailbox_visitor f{lw, env_->entity_by_handle(sm.sender)->id()};
-      visit(f, sm.content);
-    } else {
-      lw->addItem(qstr(to_string(x.content())));
-    }
-  });
-  lw->setUpdatesEnabled(true);
 }
 
 caf::actor entity::handle() {
@@ -192,22 +135,24 @@ void entity::yield() {
 }
 
 void entity::resume() {
-  std::unique_lock<std::mutex> guard{simulant_mx_};
-  // Wait for the simulant in case it is still running.
-  while (simulant_thread_state_ == sts_resume)
-    simulant_yield_cv_.wait(guard);
-  simulant_thread_state_ = sts_resume;
-  simulant_resume_cv_.notify_one();
-  simulant_yield_cv_.wait(guard);
-  if (simulant_thread_state_ == sts_finalize) {
-    simulant_thread_.join();
-    simulant_thread_ = std::thread{};
-    simulant_thread_state_ = sts_none;
-    state_ = idle;
-  } else if (state_ != resume_simulant) {
-    state_ = resume_simulant;
-  }
-  //dialog_->update();
+  critical_section(simulant_mx_, [&](auto& guard) {
+    // Wait for the simulant in case it is still running.
+    while (simulant_thread_state_ == sts_resume)
+      simulant_yield_cv_.wait(guard);
+    simulant_thread_state_ = sts_resume;
+    simulant_resume_cv_.notify_one();
+    do {
+      simulant_yield_cv_.wait(guard);
+    } while (simulant_thread_state_ == sts_resume);
+    if (simulant_thread_state_ == sts_finalize) {
+      simulant_thread_.join();
+      simulant_thread_ = std::thread{};
+      simulant_thread_state_ = sts_none;
+      state_ = idle;
+    } else if (state_ != resume_simulant) {
+      state_ = resume_simulant;
+    }
+  });
 }
 
 void entity::start_handling_next_message() {
@@ -216,19 +161,28 @@ void entity::start_handling_next_message() {
   delete dialog_->mailbox->takeItem(0);
   assert(simulant_thread_state_ == sts_none);
   simulant_thread_ = std::thread{[=] {
-    std::unique_lock<std::mutex> guard{simulant_mx_};
-    while (simulant_thread_state_ != sts_resume)
-      simulant_resume_cv_.wait(guard);
-    simulant_resume_guard_ = &guard;
-    try {
-      simulant_->resume(env_->sys().dummy_execution_unit(), 1);
-      simulant_thread_state_ = sts_finalize;
-      simulant_yield_cv_.notify_one();
-    } catch (cancel_entity_thread&) {
-      // nop
-    }
+    critical_section(simulant_mx_, [&](auto& guard) {
+      while (simulant_thread_state_ != sts_resume)
+        simulant_resume_cv_.wait(guard);
+      simulant_resume_guard_ = &guard;
+      try {
+        simulant_->resume(env_->sys().dummy_execution_unit(), 1);
+        simulant_thread_state_ = sts_finalize;
+        simulant_yield_cv_.notify_one();
+      } catch (cancel_entity_thread&) {
+        // nop
+      }
+    });
   }};
   resume();
+}
+
+void entity::run_posted_events() {
+  critical_section(simulant_events_mtx_, [&] {
+    for (auto& f : simulant_events_)
+      f(this);
+    simulant_events_.clear();
+  });
 }
 
 namespace {

@@ -1,14 +1,18 @@
 #ifndef ENVIRONMENT_HPP
 #define ENVIRONMENT_HPP
 
+#include <map>
 #include <memory>
 #include <vector>
 #include <cassert>
+#include <random>
 #include <unordered_map>
 
 #include <QApplication>
 
 #include "caf/fwd.hpp"
+#include "caf/message.hpp"
+#include "caf/actor_control_block.hpp"
 
 #include "entity.hpp"
 #include "mainwindow.hpp"
@@ -18,6 +22,20 @@
 class environment : public QObject {
 public:
   // -- Nested types -----------------------------------------------------------
+
+  struct enqueued_message {
+    int id;
+    tick_time timestamp;
+    caf::strong_actor_ptr from;
+    caf::message content;
+    enqueued_message(int id, tick_time timestamp, caf::strong_actor_ptr from,
+                     caf::message content);
+  };
+
+  struct in_flight_message {
+    caf::strong_actor_ptr receiver;
+    caf::mailbox_element_ptr content;
+  };
 
   using scheduler_type = caf::scheduler::test_coordinator;
 
@@ -29,9 +47,9 @@ public:
 
   using duration_samples = std::unordered_map<entity*, tick_durations>;
 
-  using entity_message_pair = std::pair<entity*, caf::mailbox_element*>;
+  using enqueued_messages = std::vector<enqueued_message>;
 
-  using timestamped_messages = std::map<entity_message_pair, tick_time>;
+  using timestamped_messages = std::map<entity*, enqueued_messages>;
 
   // -- Construction, destruction, and assignment ------------------------------
 
@@ -54,6 +72,7 @@ public:
   T* make_entity(Ts&&... xs) {
     assert(!running_);
     auto ptr = new T(this, std::forward<Ts>(xs)...);
+    connect_slots(ptr, std::is_same<T, sink>::value);
     entities_.emplace_back(ptr);
     return ptr;
   }
@@ -65,8 +84,7 @@ public:
     T* ptr = nullptr;
     auto base_ptr = entity_by_id(id);
     if (base_ptr == nullptr) {
-      ptr = new T(this, parent, id, std::forward<Ts>(xs)...);
-      entities_.emplace_back(ptr);
+      ptr = make_entity<T>(parent, id, std::forward<Ts>(xs)...);
     } else {
       ptr = dynamic_cast<T*>(base_ptr);
       if (!ptr)
@@ -112,23 +130,6 @@ public:
     return time_;
   }
 
-  /// Registers `(receiver, msg)` as in-flight message with the current time as
-  /// delivery timestamp.
-  inline void register_in_flight_message(entity* receiver,
-                                         caf::mailbox_element* msg) {
-    in_flight_messages_.emplace(std::make_pair(receiver, msg), time_);
-  }
-
-  /// Deregisters `(receiver, msg)` from in-flight messages and returns the
-  /// stored delivery timestamp. The difference between the delivery timestamp
-  /// and the current timestamp is stored automatically in `latency_samples`.
-  /// @throws std::runtime_error if `(receiver, msg)` is an invalid pair.
-  tick_time deregister_in_flight_message(entity* receiver,
-                                         caf::mailbox_element* msg);
-
-  /// Increases the recorded idle time for `x` if `x->started() == true`.
-  void inc_idle_time(entity* x);
-
   // -- statistics of simulation metrics ---------------------------------------
 
   /// Returns the average latency for `x`.
@@ -143,12 +144,26 @@ public:
   /// Returns what percentage of time sinks are idle.
   double average_global_idle_percentage();
 
+  /// Transmits a new message over the "network".
+  void transmit(caf::strong_actor_ptr receiver,
+                caf::mailbox_element_ptr content);
+
 public slots:
   /// Triggers a single computation step.
   void tick();
 
   /// Triggers `manual_tick_count` computation steps.
   void manual_tick();
+
+  /// Handles idle entites.
+  void sink_idling();
+
+  /// Handles messages received by entites.
+  void entity_received_message(int id, caf::strong_actor_ptr from,
+                               caf::message content);
+
+  /// Handles messages consumed by entites.
+  void entity_consumed_message(int id);
 
 signals:
   /// Emitted when a new latency sample is added and the average is recomputed.
@@ -172,6 +187,10 @@ private:
 
   void tick(bool silent);
 
+  void connect_slots(MainWindow* x);
+
+  void connect_slots(entity* x, bool is_sink);
+
   caf::actor_system& sys_;
   scheduler_type* sched_;
   entity_ptrs entities_;
@@ -181,14 +200,26 @@ private:
   /// Keeps track of the current tick count,  i.e., the current timestamp.
   tick_time time_;
 
-  /// Stores in-flight messages with delivery timestamp.
-  timestamped_messages in_flight_messages_;
+  /// Stores unprocessed messages with delivery timestamp.
+  timestamped_messages enqueued_messages_;
 
   /// Keeps track of reported latency times.
   duration_samples latency_samples_;
 
   /// Keeps track of reported idle times.
   std::unordered_map<entity*, tick_duration> idle_times_;
+
+  /// Simulates a "network" by delaying messages.
+  std::multimap<tick_time, in_flight_message> network_queue_;
+
+  /// Protects access to `delivery_queue_`.
+  std::mutex network_queue_mtx_;
+
+  /// Generates a random seed.
+  std::random_device rng_device_;
+
+  /// Pseudo-random number generator.
+  std::mt19937 rng_;
 
   Q_OBJECT
 };

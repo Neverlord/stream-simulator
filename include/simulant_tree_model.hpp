@@ -14,7 +14,7 @@ public:
 
   using pointer = simulant_tree_item*;
 
-  simulant_tree_model(simulant* parent);
+  simulant_tree_model(simulant* parent, QString root_id);
 
   QVariant data(const QModelIndex& index, int role) const override;
 

@@ -26,8 +26,10 @@ bool is_batch(caf::mailbox_element* ptr) {
 
 simulant::simulant(caf::actor_config& cfg, entity* parent)
   : caf::scheduled_actor(cfg),
+    env_(parent->env()),
     parent_(parent),
-    model_(this) {
+    model_(this, parent->id()),
+    msg_ids_(0) {
   // nop
 }
 
@@ -57,16 +59,11 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
       // enqueued to a running actors' mailbox; nothing to do
       CAF_LOG_ACCEPT_EVENT(false);
   }
-  auto local_mid = ++msg_ids_;
+  auto local_mid = push_pending_message(raw_ptr);
   auto msg = raw_ptr->copy_content_to_message();
-  parent_->post([=] {
-    emit parent_->message_received(local_mid, sender, msg);
+  post_event([=](entity* thisptr) {
+    emit thisptr->message_received(local_mid, sender, msg);
   });
-  /*
-  if (is_batch(raw_ptr))
-    parent_->env()->register_in_flight_message(parent_, raw_ptr);
-  parent_->refresh_mailbox();
-  */
 }
 
 simulant::resume_result simulant::resume(caf::execution_unit* eu, size_t num) {
@@ -74,8 +71,10 @@ simulant::resume_result simulant::resume(caf::execution_unit* eu, size_t num) {
     auto next = mailbox().peek();
     if (next == nullptr)
       return awaiting_message;
-    if (is_batch(next))
-      parent_->env()->deregister_in_flight_message(parent_, next);
+    auto local_mid = pop_pending_message(next);
+    post_event([=](entity* thisptr) {
+      emit thisptr->message_consumed(local_mid);
+    });
     auto res = super::resume(eu, 1u);
     switch (res) {
       case resume_later:
@@ -89,41 +88,41 @@ simulant::resume_result simulant::resume(caf::execution_unit* eu, size_t num) {
 
 namespace {
 
-qlonglong qt_fwd(simulant*, long x) {
+qlonglong qt_fwd(environment*, long x) {
   return static_cast<qlonglong>(x);
 }
 
-QString qt_fwd(simulant* self, caf::actor_addr x) {
-  return self->parent()->env()->id_by_handle(x);
+QString qt_fwd(environment* env, caf::actor_addr x) {
+  return env->id_by_handle(x);
 }
 
-QString qt_fwd(simulant* self, caf::strong_actor_ptr x) {
-  return self->parent()->env()->id_by_handle(x);
+QString qt_fwd(environment* env, caf::strong_actor_ptr x) {
+  return env->id_by_handle(x);
 }
 
-QString qt_fwd(simulant* self, caf::stream_id x) {
-  auto result = qt_fwd(self, x.origin);
+QString qt_fwd(environment* env, caf::stream_id x) {
+  auto result = qt_fwd(env, x.origin);
   result += ":";
   result += QString::number(x.nr);
   return result;
 }
 
-QString qt_fwd(simulant*, caf::stream_priority x) {
+QString qt_fwd(environment*, caf::stream_priority x) {
   return QString::fromStdString(to_string(x));
 }
 
 template <class T>
-T qt_fwd(simulant*, T x) {
+T qt_fwd(environment*, T x) {
   return x;
 }
 
 } // namespace <anonymous>
 
 // Put a field with a member function getter.
-#define PUT_MF(var, field) pt.put(qstr(#field), qt_fwd(this, var.field()))
+#define PUT_MF(var, field) pt.put(qstr(#field), qt_fwd(env_, var.field()))
 
 // Put a field with a member variable.
-#define PUT_MV(var, field) pt.put(qstr(#field), qt_fwd(this, (var).field))
+#define PUT_MV(var, field) pt.put(qstr(#field), qt_fwd(env_, (var).field))
 
 class scoped_path_entry {
 public:
@@ -221,6 +220,39 @@ void simulant::serialize_state(simulant_tree_item& root) {
   } // leave streams entry
   // Remove any leaf that hasen't been updated.
   root.purge();
+}
+
+void simulant::detach_from_parent() {
+  critical_section(parent_mtx_, [&] {
+    parent_ = nullptr;
+  });
+}
+
+void simulant::post_event(std::function<void (entity*)> f) {
+  critical_section(parent_mtx_, [&] {
+    auto p = parent_.load();
+    if (p != nullptr)
+      p->post(std::move(f));
+  });
+}
+
+int simulant::push_pending_message(caf::mailbox_element* ptr) {
+  auto id = ++msg_ids_;
+  critical_section(pending_messages_mtx_, [&] {
+    pending_messages_.emplace(ptr, id);
+  });
+  return id;
+}
+
+int simulant::pop_pending_message(caf::mailbox_element* ptr) {
+  return critical_section(pending_messages_mtx_, [&] {
+    auto i = pending_messages_.find(ptr);
+    if (i == pending_messages_.end())
+      return 0;
+    auto res = i->second;
+    pending_messages_.erase(i);
+    return res;
+  });
 }
 
 void intrusive_ptr_add_ref(simulant* p) {

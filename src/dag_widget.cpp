@@ -14,7 +14,7 @@ dag_widget::dag_widget(QWidget* parent)
     : QGraphicsView(parent),
       timerId(0),
       selected_(nullptr) {
-  QGraphicsScene* scene = new QGraphicsScene(this);
+  auto scene = new QGraphicsScene(this);
   scene->setItemIndexMethod(QGraphicsScene::NoIndex);
   scene->setSceneRect(-200, -200, 400, 400);
   setScene(scene);
@@ -82,62 +82,16 @@ void dag_widget::timerEvent(QTimerEvent*) {
   }
   for (auto x : nodes)
     x->calculateForces();
-  bool itemsMoved = false;
+  bool items_moved = false;
   for (auto x : nodes)
     if (x->advance())
-      itemsMoved = true;
-  if (itemsMoved) {
+      items_moved = true;
+  if (items_moved) {
     centerize_dag();
   } else {
     killTimer(timerId);
     timerId = 0;
   }
-}
-
-void dag_widget::wheelEvent(QWheelEvent* event) {
-  //scaleView(pow((double)2, -event->delta() / 240.0));
-}
-
-void dag_widget::drawBackground(QPainter* painter, const QRectF& rect) {
-  /*
-  // Shadow
-  QRectF sceneRect = this->sceneRect();
-  QRectF rightShadow(sceneRect.right(), sceneRect.top() + 5, 5,
-                     sceneRect.height());
-  QRectF bottomShadow(sceneRect.left() + 5, sceneRect.bottom(),
-                      sceneRect.width(), 5);
-  if (rightShadow.intersects(rect) || rightShadow.contains(rect))
-    painter->fillRect(rightShadow, Qt::darkGray);
-  if (bottomShadow.intersects(rect) || bottomShadow.contains(rect))
-    painter->fillRect(bottomShadow, Qt::darkGray);
-  // Fill
-  QLinearGradient gradient(sceneRect.topLeft(), sceneRect.bottomRight());
-  gradient.setColorAt(0, Qt::white);
-  gradient.setColorAt(1, Qt::lightGray);
-  painter->fillRect(rect.intersected(sceneRect), gradient);
-  painter->setBrush(Qt::NoBrush);
-  painter->drawRect(sceneRect);
-  // Text
-  QRectF textRect(sceneRect.left() + 4, sceneRect.top() + 4,
-                  sceneRect.width() - 4, sceneRect.height() - 4);
-  QString message(
-    tr("Click and drag the nodes around, and zoom with the mouse "
-       "wheel or the '+' and '-' keys"));
-
-  QFont font = painter->font();
-  font.setBold(true);
-  font.setPointSize(14);
-  painter->setFont(font);
-  painter->setPen(Qt::lightGray);
-  painter->drawText(textRect.translated(2, 2), message);
-  painter->setPen(Qt::black);
-  painter->drawText(textRect, message);
-  */
-  super::drawBackground(painter, rect);
-}
-
-void dag_widget::drawForeground(QPainter* painter, const QRectF& rect) {
-  super::drawForeground(painter, rect);
 }
 
 void dag_widget::scaleView(qreal scaleFactor) {
@@ -151,20 +105,28 @@ void dag_widget::scaleView(qreal scaleFactor) {
 }
 
 void dag_widget::shuffle() {
+  // Collect nodes.
+  std::vector<node*> nodes;
   for (auto item : scene()->items()) {
-    if (qgraphicsitem_cast<node*>(item))
-      item->setPos(-150 + qrand() % 300, -150 + qrand() % 300);
+    auto ptr = qgraphicsitem_cast<node*>(item);
+    if (ptr)
+      nodes.emplace_back(ptr);
   }
+  // Shuffle position.
+  for (auto x : nodes)
+    x->setPos(-150 + qrand() % 300, -150 + qrand() % 300);
+  // Advance nodes until the scene stabilizes.
+  bool items_moved = true;
+  while (items_moved) {
+    items_moved = false;
+    for (auto x : nodes)
+      x->calculateForces();
+    for (auto x : nodes)
+      if (x->advance())
+        items_moved = true;
+  }
+  // Centerize scene.
   centerize_dag();
-  /*
-  auto br = scene()->itemsBoundingRect();
-  scene()->setSceneRect(br);
-  auto s = size();
-  auto width = static_cast<qreal>(s.width());
-  auto height = static_cast<qreal>(s.height());
-  auto sf = std::min(width / br.width(), height / br.height());
-  scaleView(sf);
-  */
 }
 
 void dag_widget::zoomIn() {

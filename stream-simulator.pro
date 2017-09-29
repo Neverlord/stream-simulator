@@ -49,7 +49,8 @@ HEADERS += \
     include/edge.hpp \
     include/node.hpp \
     include/entity_details.hpp \
-    include/tick_time.hpp
+    include/tick_time.hpp \
+    include/critical_section.hpp
 
 FORMS += \
     ui/mainwindow.ui \

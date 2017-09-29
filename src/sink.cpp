@@ -55,20 +55,20 @@ void sink::start() {
         [=](caf::unit_t&, int) {
           if (!started_)
             started_ = true;
-          if (text(dialog_->current_sender).isEmpty()) {
+          if (text(dialog_->sink_current_sender).isEmpty()) {
             auto me = simulant_->current_mailbox_element();
-            text(dialog_->current_sender, env_->id_by_handle(me->sender));
+            text(dialog_->sink_current_sender, env_->id_by_handle(me->sender));
             auto& sm = me->content().get_as<caf::stream_msg>(0);
             auto& op = caf::get<caf::stream_msg::batch>(sm.content);
-            max(dialog_->batch_progress, static_cast<int>(op.xs_size));
+            max(dialog_->sink_batch_progress, static_cast<int>(op.xs_size));
             yield();
           }
-          progress(dialog_->item_progress, 0, val(dialog_->ticks_per_item));
-          inc(dialog_->batch_progress);
-          if (at_max(dialog_->batch_progress)) {
+          progress(dialog_->sink_item_progress, 0, val(dialog_->sink_ticks_per_item));
+          inc(dialog_->sink_batch_progress);
+          if (at_max(dialog_->sink_batch_progress)) {
             yield();
-            text(dialog_->current_sender, qstr(""));
-            reset(dialog_->batch_progress, 0, 1);
+            text(dialog_->sink_current_sender, qstr(""));
+            reset(dialog_->sink_batch_progress, 0, 1);
           }
         },
         [](caf::unit_t&) {
@@ -77,5 +77,7 @@ void sink::start() {
       );
     }
   );
+  // Run initialization code of the simulant and update state model.
+  simulant_->activate(env_->sys().dummy_execution_unit());
   simulant_->model()->update();
 }

@@ -21,6 +21,7 @@
 
 #include "caf/stream.hpp"
 
+#include "environment.hpp"
 #include "entity_details.hpp"
 
 source::source(environment* env, QWidget* parent, QString name)
@@ -41,8 +42,10 @@ void source::start() {
       // nop
     },
     [=](caf::unit_t&, caf::downstream<int>& out, size_t n) {
-      progress(dialog_->batch_generation, 0, static_cast<int>(n), [&](int i) {
-        progress(dialog_->item_generation, 1, val(dialog_->rate));
+      if (!started_)
+        started_ = true;
+      progress(dialog_->source_batch_generation, 0, static_cast<int>(n), [&](int i) {
+        progress(dialog_->source_item_generation, 1, val(dialog_->source_rate));
         out.push(i);
       });
     },
@@ -54,6 +57,8 @@ void source::start() {
     }
   ).ptr();
   // TODO: add remaining consumers to the stream.
+  // Run initialization code of the simulant and update state model.
+  simulant_->activate(env_->sys().dummy_execution_unit());
   simulant_->model()->update();
 }
 

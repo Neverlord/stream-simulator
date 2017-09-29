@@ -1,8 +1,70 @@
-#include "include/entity_details.hpp"
-#include "ui_entity_details.h"
+#include "entity_details.hpp"
 
-entity_details::entity_details(QWidget* parent) : QDialog(parent) {
+#include "entity.hpp"
+#include "source.hpp"
+#include "sink.hpp"
+#include "stage.hpp"
+#include "qstr.hpp"
+#include "environment.hpp"
+
+namespace {
+
+struct render_mailbox_visitor {
+  QListWidget* lw;
+  QString from;
+  int id;
+
+  void operator()(const caf::stream_msg::open& x) {
+    add(qstr("From: %1 -> open with priority %2")
+        .arg(from)
+        .arg(qstr(to_string(x.priority))));
+  }
+
+  void operator()(const caf::stream_msg::ack_open& x) {
+    add(qstr("From: %1 -> ack_open with %2 credit")
+        .arg(from)
+        .arg(qstr(x.initial_demand)));
+  }
+
+  void operator()(const caf::stream_msg::batch& x) {
+    add(qstr("From: %1 -> batch #%2 of size %3")
+        .arg(from)
+        .arg(qstr(x.id))
+        .arg(qstr(x.xs_size)));
+  }
+
+  void operator()(const caf::stream_msg::ack_batch& x) {
+    add(qstr("From: %1 -> ack_batch #%2 with %3 new credit")
+        .arg(from)
+        .arg(qstr(x.acknowledged_id))
+        .arg(qstr(x.new_capacity)));
+  }
+
+  template <class T>
+  void operator()(const T& x) {
+    add(qstr("From: %1 -> %2").arg(from).arg(qstr(to_string(x))));
+  }
+
+  void add(QString x) {
+    auto item = new QListWidgetItem;
+    item->setText(x);
+    item->setData(Qt::UserRole, id);
+    lw->insertItem(lw->count(), item); // takes ownership
+  }
+};
+
+} // namespace <anonymous>
+
+entity_details::entity_details(entity* ptr)
+    : QDialog(ptr->parent()),
+      env_(ptr->env()) {
   setupUi(this);
+  connect(ptr, SIGNAL(idling()), sink_idle_ticks, SLOT(stepUp()));
+  connect(
+    ptr, SIGNAL(message_received(int, caf::strong_actor_ptr, caf::message)),
+    SLOT(entity_received_message(int, caf::strong_actor_ptr, caf::message)));
+  connect(ptr, SIGNAL(message_consumed(int)),
+          SLOT(entity_consumed_message(int)));
 }
 
 entity_details::~entity_details() {
@@ -10,23 +72,47 @@ entity_details::~entity_details() {
 }
 
 void entity_details::drop_sink_widgets() {
-  del(sink_line_1, sink_line_2, ticks_per_item_label, ticks_per_item,
-      batch_size_label, batch_size, current_sender_label, current_sender,
-      input_batch_size_label, input_batch_size, item_progress_label,
-      item_progress, batch_progress_label, batch_progress);
+  drop_by_prefix(qstr("sink"));
 }
 
 void entity_details::drop_stage_widgets() {
-  del(stage_line_1, stage_line_2, ratio_label, ratio_frame, output_buffer_label,
-      output_buffer);
+  drop_by_prefix(qstr("stage"));
 }
 
 void entity_details::drop_source_widgets() {
-  del(source_line_1, source_line_2, weight_label, weight, rate_label, rate,
-      item_generation_label, item_generation, batch_generation_label,
-      batch_generation);
+  drop_by_prefix(qstr("source"));
 }
 
 void entity_details::drop_source_only_widgets() {
-  del(rate_label, rate, item_generation_label, item_generation);
+  QObject* lst[] = {source_rate_label, source_rate,
+                    source_item_generation_label, source_item_generation};
+  for (auto obj : lst)
+    obj->deleteLater();
+}
+
+void entity_details::entity_received_message(int id, caf::strong_actor_ptr from,
+                                             caf::message content) {
+  render_mailbox_visitor v{mailbox, env_->id_by_handle(from), id};
+  if (content.match_elements<caf::stream_msg>()) {
+    auto& sm = content.get_as<caf::stream_msg>(0);
+    caf::visit(v, sm.content);
+  } else {
+    v(content);
+  }
+}
+
+void entity_details::entity_consumed_message(int id) {
+  for (int row = 0; row < mailbox->count(); ++row) {
+    auto item = mailbox->item(row);
+    if (item->data(Qt::UserRole) == id) {
+      delete item;
+      return;
+    }
+  }
+}
+
+void entity_details::drop_by_prefix(const QString& prefix) {
+  for (auto obj : children())
+    if (obj->objectName().startsWith(prefix))
+      obj->deleteLater();
 }

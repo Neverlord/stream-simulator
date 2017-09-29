@@ -31,9 +31,6 @@ protected:
   void resizeEvent(QResizeEvent* event) override;
   void keyPressEvent(QKeyEvent* event) override;
   void timerEvent(QTimerEvent* event) override;
-  void wheelEvent(QWheelEvent* event) override;
-  void drawBackground(QPainter* painter, const QRectF& rect) override;
-  void drawForeground(QPainter* painter, const QRectF& rect) override;
 
   void scaleView(qreal scaleFactor);
 
