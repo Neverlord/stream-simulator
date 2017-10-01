@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <cassert>
+#include <functional>
 #include <random>
 #include <unordered_map>
 
@@ -50,6 +51,11 @@ public:
   using enqueued_messages = std::vector<enqueued_message>;
 
   using timestamped_messages = std::map<entity*, enqueued_messages>;
+
+  /// Represents an event (usually generated from simulant actors) that occurs
+  /// during a tick and that should get executed between calling `tick()` and
+  /// `after_tick()` on all entities.
+  using tick_event = std::function<void()>;
 
   // -- Construction, destruction, and assignment ------------------------------
 
@@ -148,6 +154,9 @@ public:
   void transmit(caf::strong_actor_ptr receiver,
                 caf::mailbox_element_ptr content);
 
+  /// Adds an entry to the tick event queue.
+  void post_tick_event(tick_event x);
+
 public slots:
   /// Triggers a single computation step.
   void tick();
@@ -191,6 +200,8 @@ private:
 
   void connect_slots(entity* x, bool is_sink);
 
+  void run_tick_events();
+
   caf::actor_system& sys_;
   scheduler_type* sched_;
   entity_ptrs entities_;
@@ -214,6 +225,13 @@ private:
 
   /// Protects access to `delivery_queue_`.
   std::mutex network_queue_mtx_;
+
+  /// Stores events that occur during `tick()` and must get executed before
+  /// `after_tick()`.
+  std::vector<tick_event> tick_events_;
+
+  /// Protects access to `tick_events`.
+  std::mutex tick_events_mtx_;
 
   /// Generates a random seed.
   std::random_device rng_device_;

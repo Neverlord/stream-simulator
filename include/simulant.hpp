@@ -18,7 +18,7 @@ public:
 
   void enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) override;
 
-  resume_result resume(caf::execution_unit*, size_t) override;
+  caf::invoke_message_result consume(caf::mailbox_element& x) override;
 
   template <class F>
   void iterate_mailbox(F f) {

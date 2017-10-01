@@ -51,8 +51,7 @@ void environment::run() {
   main_window_->start();
   for (auto& e : entities_)
       e->start();
-  for (auto& e : entities_)
-      e->run_posted_events();
+  run_tick_events();
   // We start at tick count 1. Some entities send messages during
   // `start()`, i.e., "tick 0".
   time_ = 1;
@@ -197,6 +196,12 @@ void environment::transmit(caf::strong_actor_ptr receiver,
   });
 }
 
+void environment::post_tick_event(tick_event x) {
+  critical_section(tick_events_mtx_, [&] {
+    tick_events_.emplace_back(std::move(x));
+  });
+}
+
 environment::environment(caf::actor_system& sys, scheduler_type* sched)
   : sys_(sys),
     sched_(sched),
@@ -212,15 +217,21 @@ double environment::idle_percentage(tick_duration x) {
 }
 
 void environment::tick(bool silent) {
+  // Allow entities to decide what to do on the next tick.
   main_window_->before_tick();
   for (auto& entity : entities_)
     entity->before_tick();
+  // Run code for advancing in time on all entities.
   main_window_->tick();
   for (auto& entity : entities_)
     entity->tick();
+  // Run all events that occurred during the tick.
+  run_tick_events();
+  // Trigger state transitions etc.
   main_window_->after_tick();
   for (auto& entity : entities_)
     entity->after_tick();
+  // Increment time and emit updates.
   ++time_;
   if (!silent) {
     for (auto& kvp : idle_times_)
@@ -249,4 +260,12 @@ void environment::connect_slots(entity* x, bool is_sink) {
     x, SIGNAL(message_received(int, caf::strong_actor_ptr, caf::message)),
     SLOT(entity_received_message(int, caf::strong_actor_ptr, caf::message)));
   connect(x, SIGNAL(message_consumed(int)), SLOT(entity_consumed_message(int)));
+}
+
+void environment::run_tick_events() {
+  critical_section(tick_events_mtx_, [&] {
+    for (auto& f : tick_events_)
+      f();
+    tick_events_.clear();
+  });
 }

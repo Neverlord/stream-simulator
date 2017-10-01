@@ -88,7 +88,6 @@ void entity::tick() {
 }
 
 void entity::after_tick() {
-  run_posted_events();
   simulant_->model()->update();
   if (started_ && before_tick_state_ == idle && state_ == idle)
     emit idling();
@@ -175,14 +174,6 @@ void entity::start_handling_next_message() {
     });
   }};
   resume();
-}
-
-void entity::run_posted_events() {
-  critical_section(simulant_events_mtx_, [&] {
-    for (auto& f : simulant_events_)
-      f(this);
-    simulant_events_.clear();
-  });
 }
 
 namespace {

@@ -13,17 +13,6 @@
 #include "entity.hpp"
 #include "environment.hpp"
 
-namespace {
-
-bool is_batch(caf::mailbox_element* ptr) {
-  if (!ptr->content().match_elements<caf::stream_msg>())
-    return false;
-  auto& sm = ptr->content().get_as<caf::stream_msg>(0);
-  return caf::holds_alternative<caf::stream_msg::batch>(sm.content);
-}
-
-} // namespace <anonymous>
-
 simulant::simulant(caf::actor_config& cfg, entity* parent)
   : caf::scheduled_actor(cfg),
     env_(parent->env()),
@@ -66,24 +55,12 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
   });
 }
 
-simulant::resume_result simulant::resume(caf::execution_unit* eu, size_t num) {
-  for (size_t i = 0; i < num; ++i) {
-    auto next = mailbox().peek();
-    if (next == nullptr)
-      return awaiting_message;
-    auto local_mid = pop_pending_message(next);
-    post_event([=](entity* thisptr) {
-      emit thisptr->message_consumed(local_mid);
-    });
-    auto res = super::resume(eu, 1u);
-    switch (res) {
-      case resume_later:
-        break;
-      default:
-        return res;
-    }
-  }
-  return resume_later;
+caf::invoke_message_result simulant::consume(caf::mailbox_element& x) {
+  auto local_mid = pop_pending_message(&x);
+  post_event([=](entity* thisptr) {
+    emit thisptr->message_consumed(local_mid);
+  });
+  return super::consume(x);
 }
 
 namespace {
@@ -223,17 +200,15 @@ void simulant::serialize_state(simulant_tree_item& root) {
 }
 
 void simulant::detach_from_parent() {
-  critical_section(parent_mtx_, [&] {
-    parent_ = nullptr;
-  });
+  parent_ = nullptr;
 }
 
 void simulant::post_event(std::function<void (entity*)> f) {
-  critical_section(parent_mtx_, [&] {
-    auto p = parent_.load();
-    if (p != nullptr)
-      p->post(std::move(f));
-  });
+  auto ptr = parent_.load();
+  if (ptr != nullptr)
+    env_->post_tick_event([=] {
+      f(ptr);
+    });
 }
 
 int simulant::push_pending_message(caf::mailbox_element* ptr) {

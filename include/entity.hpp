@@ -96,8 +96,6 @@ public:
     return started_;
   }
 
-  void run_posted_events();
-
 signals:
   /// Signals that no operation was performed during a tick interval.
   void idling();
@@ -281,19 +279,6 @@ protected:
   bool started_;
 
 private:
-  template <class F>
-  void post(F f) {
-    critical_section(simulant_events_mtx_, [&] {
-      simulant_events_.emplace_back(std::move(f));
-    });
-  }
-
-  /// Callbacks from the simulant's thread for running in the entity's thread
-  /// after the simulant called `yield()`.
-  std::vector<std::function<void(entity*)>> simulant_events_;
-
-  std::mutex simulant_events_mtx_;
-
   Q_OBJECT
 };
 
