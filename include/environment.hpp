@@ -14,6 +14,7 @@
 #include "caf/fwd.hpp"
 #include "caf/message.hpp"
 #include "caf/actor_control_block.hpp"
+#include "caf/actor_system_config.hpp"
 
 #include "entity.hpp"
 #include "mainwindow.hpp"
@@ -23,6 +24,10 @@
 class environment : public QObject {
 public:
   // -- Nested types -----------------------------------------------------------
+
+  struct config : caf::actor_system_config {
+    config();
+  };
 
   struct enqueued_message {
     int id;
@@ -37,8 +42,6 @@ public:
     caf::strong_actor_ptr receiver;
     caf::mailbox_element_ptr content;
   };
-
-  using scheduler_type = caf::scheduler::test_coordinator;
 
   using entity_ptr = std::unique_ptr<entity>;
 
@@ -55,11 +58,42 @@ public:
   /// Represents an event (usually generated from simulant actors) that occurs
   /// during a tick and that should get executed between calling `tick()` and
   /// `after_tick()` on all entities.
-  using tick_event = std::function<void()>;
+  class tick_event {
+    public:
+      virtual ~tick_event();
+
+      virtual void run(tick_time t_now) = 0;
+  };
+
+  template <class F>
+  class tick_event_impl : public tick_event {
+  public:
+    tick_event_impl(F&& fun) : fun_(std::move(fun)) {
+      // nop
+    }
+
+    void run(tick_time t_now) override {
+      fun_(t_now);
+    }
+    
+  private:
+    F fun_;
+  };
+
+  using tick_event_uptr = std::unique_ptr<tick_event>;
+
+  template <class F>
+  tick_event_uptr make_tick_event(F f) {
+    return std::make_unique<tick_event_impl<F>>(std::move(f));
+  }
+
+  using tick_events = std::vector<tick_event_uptr>;
+
+  using tick_events_map = std::map<tick_time, tick_events>;
 
   // -- Construction, destruction, and assignment ------------------------------
 
-  static std::unique_ptr<environment> make(caf::actor_system& sys);
+  environment(int argc, char** argv);
 
   environment(const environment&) = delete;
 
@@ -155,7 +189,29 @@ public:
                 caf::mailbox_element_ptr content);
 
   /// Adds an entry to the tick event queue.
-  void post_tick_event(tick_event x);
+  /// @param delay Amount of ticks between now and the requested execution of
+  ///        the event. A value of 0 executes this event before calling
+  ///        `after_tick()` for the next time. A positive value delays
+  ///        exeuction by that amount of ticks. A value of -1 introduces a
+  ///        random delay.
+  /// @param x A scheduled event.
+  void post(tick_duration delay, tick_event_uptr x);
+
+  /// Convenience function for calling `add_tick_event(0, x)`.
+  void post(tick_event_uptr x);
+
+  template <class F>
+  void post_f(tick_duration delay, F fun) {
+    post(delay, make_tick_event<F>(std::move(fun)));
+  }
+
+  template <class F>
+  void post_f(F fun) {
+    post(make_tick_event<F>(std::move(fun)));
+  }
+
+  // Returns a random delay with bounds configured in the main window.
+  tick_duration random_delay();
 
 public slots:
   /// Triggers a single computation step.
@@ -190,8 +246,6 @@ signals:
   void idle_percentage_changed(entity* receiver, double percentage);
 
 private:
-  environment(caf::actor_system &sys, scheduler_type* sched);
-
   double idle_percentage(tick_duration x);
 
   void tick(bool silent);
@@ -202,8 +256,8 @@ private:
 
   void run_tick_events();
 
-  caf::actor_system& sys_;
-  scheduler_type* sched_;
+  config cfg_;
+  caf::actor_system sys_;
   entity_ptrs entities_;
   std::unique_ptr<MainWindow> main_window_;
   bool running_;
@@ -228,7 +282,7 @@ private:
 
   /// Stores events that occur during `tick()` and must get executed before
   /// `after_tick()`.
-  std::vector<tick_event> tick_events_;
+  tick_events_map tick_events_;
 
   /// Protects access to `tick_events`.
   std::mutex tick_events_mtx_;

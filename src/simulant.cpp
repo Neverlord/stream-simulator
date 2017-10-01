@@ -13,13 +13,22 @@
 #include "entity.hpp"
 #include "environment.hpp"
 
+namespace {
+
+caf::error silent_exception_handler(caf::scheduled_actor*,
+                                    std::exception_ptr&) {
+  return caf::sec::runtime_error;                                                    
+}
+
+} // namespace <anonymous>
+
 simulant::simulant(caf::actor_config& cfg, entity* parent)
   : caf::scheduled_actor(cfg),
     env_(parent->env()),
     parent_(parent),
     model_(this, parent->id()),
     msg_ids_(0) {
-  // nop
+  set_exception_handler(silent_exception_handler);
 }
 
 void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
@@ -27,38 +36,36 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
   CAF_ASSERT(!getf(is_blocking_flag));
   CAF_LOG_TRACE(CAF_ARG(*ptr));
   CAF_LOG_SEND_EVENT(ptr);
-  auto mid = ptr->mid;
-  auto sender = ptr->sender;
-  auto raw_ptr = ptr.release();
-  switch (mailbox().enqueue(raw_ptr)) {
-    case caf::detail::enqueue_result::queue_closed: {
-      CAF_LOG_REJECT_EVENT();
-      if (mid.is_request()) {
-        caf::detail::sync_request_bouncer f{caf::exit_reason::unknown};
-        f(sender, mid);
-      }
-      // message was dropped, don't register as in-flight
-      return;
-    }
-    case caf::detail::enqueue_result::unblocked_reader: {
-      CAF_LOG_ACCEPT_EVENT(true);
-      break;
-    }
-    case caf::detail::enqueue_result::success:
-      // enqueued to a running actors' mailbox; nothing to do
-      CAF_LOG_ACCEPT_EVENT(false);
+  // Instead of delivering the message directly, we first give it an ID and put
+  // it into the environment's in-flight queue. The environment then
+  // re-enqueues the mailbox element at a later time.
+  auto local_mid = peek_pending_message(ptr.get());
+  if (local_mid == 0) {
+    local_mid = push_pending_message(ptr.get());
+    auto self = caf::strong_actor_ptr{ctrl()};
+    env_->post_f(-1, [=, me = std::move(ptr)](tick_time) mutable {
+      auto msg = me->copy_content_to_message();
+      auto sender = me->sender;
+      self->enqueue(std::move(me), nullptr);
+      critical_section(parent_mtx_, [&] {
+        auto pptr = parent_.load();
+        if (pptr)
+          emit pptr->message_received(local_mid, sender, msg);
+      });
+    });
+    return;
   }
-  auto local_mid = push_pending_message(raw_ptr);
-  auto msg = raw_ptr->copy_content_to_message();
-  post_event([=](entity* thisptr) {
-    emit thisptr->message_received(local_mid, sender, msg);
-  });
+  super::enqueue(std::move(ptr), nullptr);
 }
 
 caf::invoke_message_result simulant::consume(caf::mailbox_element& x) {
   auto local_mid = pop_pending_message(&x);
-  post_event([=](entity* thisptr) {
-    emit thisptr->message_consumed(local_mid);
+  env_->post_f([=](tick_time) {
+    critical_section(parent_mtx_, [&] {
+      auto pptr = parent_.load();
+      if (pptr)
+        emit pptr->message_consumed(local_mid);
+    });
   });
   return super::consume(x);
 }
@@ -203,14 +210,6 @@ void simulant::detach_from_parent() {
   parent_ = nullptr;
 }
 
-void simulant::post_event(std::function<void (entity*)> f) {
-  auto ptr = parent_.load();
-  if (ptr != nullptr)
-    env_->post_tick_event([=] {
-      f(ptr);
-    });
-}
-
 int simulant::push_pending_message(caf::mailbox_element* ptr) {
   auto id = ++msg_ids_;
   critical_section(pending_messages_mtx_, [&] {
@@ -227,6 +226,13 @@ int simulant::pop_pending_message(caf::mailbox_element* ptr) {
     auto res = i->second;
     pending_messages_.erase(i);
     return res;
+  });
+}
+
+int simulant::peek_pending_message(caf::mailbox_element* ptr) {
+  return critical_section(pending_messages_mtx_, [&] {
+    auto i = pending_messages_.find(ptr);
+    return (i == pending_messages_.end()) ? 0 : i->second;
   });
 }
 

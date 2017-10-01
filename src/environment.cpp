@@ -8,26 +8,62 @@
 #include "caf/actor_system_config.hpp"
 #include "caf/message.hpp"
 
-#include "caf/scheduler/test_coordinator.hpp"
+#include "caf/scheduler/abstract_coordinator.hpp"
 
 #include "sink.hpp"
 #include "mainwindow.hpp"
 
-environment::enqueued_message::enqueued_message(
-  int id_arg, tick_time timestamp_arg, caf::strong_actor_ptr from_arg,
-  caf::message content_arg)
-    : id(id_arg),
-      timestamp(timestamp_arg),
-      from(std::move(from_arg)),
+namespace {
+
+class nop_coordinator : public caf::scheduler::abstract_coordinator {
+public:
+  using super = caf::scheduler::abstract_coordinator;
+
+  nop_coordinator(caf::actor_system& sys) : super(sys) {
+    // nop
+  }
+
+  static caf::actor_system::module* make(caf::actor_system& sys,
+                                         caf::detail::type_list<>) {
+    return new nop_coordinator(sys);
+  }                                                                                
+   
+protected:
+  void stop() override {
+    stop_actors();
+  }
+
+  void enqueue(caf::resumable*) override {
+    // nop
+  }
+};
+
+} // namespace <anonymous>
+
+environment::config::config() {
+  load<nop_coordinator>();
+}
+
+environment::enqueued_message::enqueued_message(int id_arg,
+                                                tick_time timestamp_arg,
+                                                caf::strong_actor_ptr from_arg,
+                                                caf::message content_arg)
+    : id(id_arg), timestamp(timestamp_arg), from(std::move(from_arg)),
       content(std::move(content_arg)) {
   // nop
 }
 
-std::unique_ptr<environment> environment::make(caf::actor_system& sys) {
-  std::unique_ptr<environment> result;
-  auto sched = &dynamic_cast<scheduler_type&>(sys.scheduler());
-  result.reset(new environment(sys, sched));
-  return result;
+environment::tick_event::~tick_event() {
+  // nop
+}
+
+environment::environment(int argc, char** argv)
+  : sys_(cfg_.parse(argc, argv)),
+    main_window_(nullptr),
+    running_(false),
+    time_(0),
+    rng_(rng_device_()) {
+    // nop
 }
 
 void environment::run() {
@@ -93,6 +129,21 @@ entity* environment::entity_by_handle(const caf::actor_addr& x) const {
 QString environment::id_by_handle(const caf::actor_addr& x) const {
   auto ptr = entity_by_handle(x);
   return ptr == nullptr ? QString{} : ptr->id();
+}
+
+void environment::post(tick_duration delay, tick_event_uptr x) {
+  critical_section(tick_events_mtx_, [&] {
+    auto t = time_ + (delay >= 0 ? delay : random_delay());
+    tick_events_[t].emplace_back(std::move(x));
+  });
+}
+
+tick_duration environment::random_delay() {
+  return 3; // fair dice
+}
+
+void environment::post(tick_event_uptr x) {
+  post(0, std::move(x));
 }
 
 void environment::tick() {
@@ -196,22 +247,6 @@ void environment::transmit(caf::strong_actor_ptr receiver,
   });
 }
 
-void environment::post_tick_event(tick_event x) {
-  critical_section(tick_events_mtx_, [&] {
-    tick_events_.emplace_back(std::move(x));
-  });
-}
-
-environment::environment(caf::actor_system& sys, scheduler_type* sched)
-  : sys_(sys),
-    sched_(sched),
-    main_window_(nullptr),
-    running_(false),
-    time_(0),
-    rng_(rng_device_()) {
-    // nop
-}
-
 double environment::idle_percentage(tick_duration x) {
   return x == 0 ? 0. : (static_cast<double>(time_) / x) * 100.;
 }
@@ -263,9 +298,15 @@ void environment::connect_slots(entity* x, bool is_sink) {
 }
 
 void environment::run_tick_events() {
+  using std::swap;
+  tick_events events;
   critical_section(tick_events_mtx_, [&] {
-    for (auto& f : tick_events_)
-      f();
-    tick_events_.clear();
+    auto i = tick_events_.find(time_);
+    if (i != tick_events_.end()) {
+      swap(events, i->second);
+      tick_events_.erase(i);
+    }
   });
+  for (auto& event : events)
+    event->run(time_);
 }

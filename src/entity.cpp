@@ -164,13 +164,9 @@ void entity::start_handling_next_message() {
       while (simulant_thread_state_ != sts_resume)
         simulant_resume_cv_.wait(guard);
       simulant_resume_guard_ = &guard;
-      try {
-        simulant_->resume(env_->sys().dummy_execution_unit(), 1);
-        simulant_thread_state_ = sts_finalize;
-        simulant_yield_cv_.notify_one();
-      } catch (cancel_entity_thread&) {
-        // nop
-      }
+      simulant_->resume(env_->sys().dummy_execution_unit(), 1);
+      simulant_thread_state_ = sts_finalize;
+      simulant_yield_cv_.notify_one();
     });
   }};
   resume();

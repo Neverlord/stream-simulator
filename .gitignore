@@ -1,0 +1,6 @@
+Makefile
+.ycm_extra_conf.pyc
+*.app
+moc_*.cpp
+moc_*.h
+ui_*.h

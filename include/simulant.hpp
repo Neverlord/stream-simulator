@@ -40,14 +40,14 @@ public:
   void detach_from_parent();
 
 private:
-  // Posts `f` to the event queue of the parent.
-  void post_event(std::function<void (entity*)> f);
-
   // Adds `ptr` to `pending_messages_` and returns its ID.
   int push_pending_message(caf::mailbox_element* ptr);
 
   // Removes `ptr` from `pending_messages_` and returns its ID.
   int pop_pending_message(caf::mailbox_element* ptr);
+
+  // Returns the ID of `ptr` or 0 if it isn't in `pending_messages_`.
+  int peek_pending_message(caf::mailbox_element* ptr);
 
   template <class F>
   void for_all_model_items(F f) {

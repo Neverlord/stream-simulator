@@ -23,19 +23,8 @@
 
 #include "environment.hpp"
 
-namespace {
-
-struct config : caf::actor_system_config {
-  config() {
-    scheduler_policy = caf::atom("testing");
-  }
-};
-
-void caf_main(caf::actor_system& sys, const config&) {
-  auto ptr = environment::make(sys);
-  ptr->run();
+int main(int argc, char** argv) {
+  environment env{argc, argv};
+  env.run();
 }
 
-} // namespace <anonymous>
-
-CAF_MAIN()
