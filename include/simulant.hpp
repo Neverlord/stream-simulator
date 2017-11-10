@@ -35,14 +35,22 @@ public:
     return &model_;
   }
 
+  inline void update_model() {
+    serialize_state(*model_.root());
+  }
+
   void serialize_state(simulant_tree_item& root);
 
   void detach_from_parent();
 
-private:
+  inline entity* parent() {
+    return parent_.load();
+  }
+
   // Adds `ptr` to `pending_messages_` and returns its ID.
   int push_pending_message(caf::mailbox_element* ptr);
 
+private:
   // Removes `ptr` from `pending_messages_` and returns its ID.
   int pop_pending_message(caf::mailbox_element* ptr);
 

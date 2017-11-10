@@ -17,6 +17,9 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
+#include <QVector>
+#include <QMetaType>
+
 #include "caf/exec_main.hpp"
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
@@ -24,6 +27,7 @@
 #include "environment.hpp"
 
 int main(int argc, char** argv) {
+  qRegisterMetaType<QVector<int>>("QVector<int>");
   environment env{argc, argv};
   env.run();
 }

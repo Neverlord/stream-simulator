@@ -1,60 +1,52 @@
 #ifndef GATHERER_HPP
 #define GATHERER_HPP
 
-#include "caf/stream_gatherer.hpp"
-
-#include <QObject>
+#include "caf/random_gatherer.hpp"
 
 #include "fwd.hpp"
+#include "tick_time.hpp"
+#include "rate_controlled_sink.hpp"
 
-class gatherer : public caf::stream_gatherer {
+class gatherer : public caf::random_gatherer {
 public:
-  gatherer(entity* self);
+  using super = caf::random_gatherer;
+
+  template <class Scatterer>
+  gatherer(caf::local_actor* self, Scatterer& out)
+      : super(self, out),
+        parent_(static_cast<simulant*>(self)->parent()) {
+    // nop
+  }
 
   ~gatherer() override;
-
-  path_ptr add_path(const caf::stream_id& sid, caf::strong_actor_ptr x,
-                    caf::strong_actor_ptr original_stage,
-                    caf::stream_priority prio, long available_credit,
-                    bool redeployable, caf::response_promise result_cb) override;
-
-  bool remove_path(const caf::stream_id& sid, const caf::actor_addr& x,
-                   caf::error reason, bool silent) override;
-
-  void close(caf::message result) override;
-
-  void abort(caf::error reason) override;
-
-  long num_paths() const override;
-
-  bool closed() const override;
-
-  bool continuous() const override;
-
-  void continuous(bool value) override;
-
-  path_ptr find(const caf::stream_id& sid, const caf::actor_addr& x) override;
-
-  path_ptr path_at(size_t index) override;
-
-  long high_watermark() const override;
-
-  long min_credit_assignment() const override;
-
-  long max_credit() const override;
-
-  void high_watermark(long x) override;
-
-  void min_credit_assignment(long x) override;
-
-  void max_credit(long x) override;
 
   void assign_credit(long downstream_capacity) override;
 
   long initial_credit(long downstream_capacity, path_ptr x) override;
 
+  void batch_completed(caf::inbound_path* from, size_t xs_size, int64_t id);
+
 private:
-  QObject* parent_;
+  entity* parent_;
+
+  double proportional_ = 1;
+  double integral_ = .2;
+  double derivative_ = 0;
+  double min_rate_ = 100;
+
+  /// State for computing the rate using a PID controller.
+  struct rate_state {
+    tick_duration last_time_;
+    tick_duration batch_interval_;
+    double last_rate_;
+    double last_err_;
+  };
+
+  std::unordered_map<caf::inbound_path*, rate_state> rate_states_;
+
+  void update_rate(caf::inbound_path* from, tick_duration time,
+                   size_t num_elements, tick_duration processing_delay,
+                   tick_duration scheduling_delay);
 };
 
 #endif // GATHERER_HPP

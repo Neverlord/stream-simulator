@@ -77,6 +77,10 @@ public:
     return env_;
   }
 
+  inline simulant* sim() const {
+    return simulant_.get();
+  }
+
   simulant_tree_model* model();
 
   caf::actor handle();

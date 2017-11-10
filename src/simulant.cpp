@@ -12,6 +12,7 @@
 #include "qstr.hpp"
 #include "entity.hpp"
 #include "environment.hpp"
+#include "term_gatherer.hpp"
 
 namespace {
 
@@ -44,18 +45,18 @@ void simulant::enqueue(caf::mailbox_element_ptr ptr, caf::execution_unit*) {
     local_mid = push_pending_message(ptr.get());
     auto self = caf::strong_actor_ptr{ctrl()};
     env_->post_f(-1, [=, me = std::move(ptr)](tick_time) mutable {
-      auto msg = me->copy_content_to_message();
-      auto sender = me->sender;
       self->enqueue(std::move(me), nullptr);
-      critical_section(parent_mtx_, [&] {
-        auto pptr = parent_.load();
-        if (pptr)
-          emit pptr->message_received(local_mid, sender, msg);
-      });
     });
     return;
   }
+  auto msg = ptr->copy_content_to_message();
+  auto sender = ptr->sender;
   super::enqueue(std::move(ptr), nullptr);
+  critical_section(parent_mtx_, [&] {
+    auto pptr = parent_.load();
+    if (pptr)
+      emit pptr->message_received(local_mid, sender, msg);
+  });
 }
 
 caf::invoke_message_result simulant::consume(caf::mailbox_element& x) {
@@ -166,6 +167,16 @@ void simulant::serialize_state(simulant_tree_item& root) {
         PUT_MF(in, high_watermark);
         PUT_MF(in, min_credit_assignment);
         PUT_MF(in, max_credit);
+        auto tg = dynamic_cast<term_gatherer*>(&in);
+        if (tg != nullptr) {
+          PUT_MV(*tg, min_tokens_);
+          PUT_MV(*tg, desired_batch_complexity_);
+          PUT_MV(*tg, last_cycle_);
+          PUT_MV(*tg, last_token_count_);
+          PUT_MV(*tg, historic_time_per_item_);
+          PUT_MV(*tg, processing_time_);
+          PUT_MV(*tg, processed_items_);
+        }
         auto paths_entry = pt.enter(qstr("paths"), qstr("<list:inbound_path>"));
         for (long path_id = 0; path_id < in.num_paths(); ++path_id) {
           auto path = in.path_at(path_id);
@@ -181,12 +192,11 @@ void simulant::serialize_state(simulant_tree_item& root) {
       }
       { // lifetime scope of out
         auto& out = mgr->out();
-        auto out_entry = pt.enter(qstr("out"), qstr("<stream_scatterer"));
+        auto out_entry = pt.enter(qstr("out"), qstr("<stream_scatterer>"));
         PUT_MF(out, continuous);
         PUT_MF(out, credit);
         PUT_MF(out, buffered);
         PUT_MF(out, min_batch_size);
-        PUT_MF(out, max_batch_size);
         PUT_MF(out, min_buffer_size);
         auto paths_entry = pt.enter(qstr("paths"), qstr("<list:outbound_path>"));
         for (long path_id = 0; path_id < out.num_paths(); ++path_id) {

@@ -160,6 +160,8 @@ void entity::start_handling_next_message() {
   delete dialog_->mailbox->takeItem(0);
   assert(simulant_thread_state_ == sts_none);
   simulant_thread_ = std::thread{[=] {
+    CAF_SET_LOGGER_SYS(&(simulant_->system()));
+    CAF_SET_AID(simulant_->id());
     critical_section(simulant_mx_, [&](auto& guard) {
       while (simulant_thread_state_ != sts_resume)
         simulant_resume_cv_.wait(guard);

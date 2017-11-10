@@ -191,38 +191,8 @@ void MainWindow::load_layout(QTextStream& in) {
 }
 
 void MainWindow::load_default_view() {
-  //QString txt = QStringLiteral("src1,src2,-;stg1,stg1,src3;snk1,snk1,snk1");
-  QString txt = QStringLiteral("src1,stg1,snk1;src2,stg1,snk1;src3,-,snk1");
+  //QString txt = QStringLiteral("src1,stg1,snk1;src2,stg1,snk1;src3,-,snk1");
+  QString txt = QStringLiteral("src1,snk1");
   QTextStream in(&txt);
   load_layout(in);
-  /*
-  // Clean up any current widgets and state.
-  entities.clear();
-  setUpdatesEnabled(false);
-  auto ptr = mainFrame;
-  qDeleteAll(ptr->findChildren<QWidget*>("", Qt::FindDirectChildrenOnly));
-  qDeleteAll(ptr->findChildren<QGridLayout*>("", Qt::FindDirectChildrenOnly));
-  auto layout = new QGridLayout(ptr);
-  layout->addWidget(make_source("src1"), 0, 0, 1, 1);
-  layout->addWidget(make_source("src2"), 1, 0, 1, 1);
-  layout->addWidget(make_source("src3"), 2, 0, 1, 1);
-  layout->addWidget(make_connection("src1", "stg1"), 0, 1, 1, 1);
-  layout->addWidget(make_connection("src2", "stg1"), 1, 1, 1, 1);
-  layout->addWidget(make_connection("src3", "snk1"), 2, 1, 1, 3);
-  layout->addWidget(make_stage("stg1"), 0, 2, 2, 1);
-  layout->addWidget(make_connection("stg1", "snk1"), 0, 3, 1, 1);
-  layout->addWidget(make_sink("snk1"), 0, 4, 3, 1);
-  // Create state for the simulation itself.
-  auto snk1 = new sink(this, "snk1");
-  entities.emplace_back(snk1);
-  auto stg1 = new stage(snk1, this, "stg1");
-  entities.emplace_back(stg1);
-  entities.emplace_back(new source(stg1, this, "src1"));
-  entities.emplace_back(new source(stg1, this, "src2"));
-  entities.emplace_back(new source(snk1, this, "src3"));
-  // Initial tock to start things off.
-  for (auto& x : entities)
-    x->tock();
-  setUpdatesEnabled(true);
-  */
 }

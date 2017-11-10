@@ -51,7 +51,8 @@ void stage::start() {
         auto& sm = simulant_->current_mailbox_element()->content().get_as<caf::stream_msg>(0);
         auto& op = caf::get<caf::stream_msg::open>(sm.content);
         auto ptr = simulant_->streams().begin()->second;
-        ptr->add_source(in.id(), op.prev_stage, op.original_stage, op.priority, op.redeployable, caf::response_promise{});
+        ptr->add_source(in.id(), op.prev_stage, op.original_stage, op.priority,
+                        op.redeployable, caf::response_promise{});
         simulant_->streams().emplace(in.id(), ptr);
         return;
       }

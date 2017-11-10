@@ -27,7 +27,10 @@
 #include <QListWidget>
 #include <QProgressBar>
 
+#include "caf/stream_manager.hpp"
+
 #include "entity.hpp"
+#include "tick_time.hpp"
 
 class sink : virtual public entity {
 public:
@@ -36,6 +39,10 @@ public:
   ~sink() override;
 
   void start() override;
+
+private:
+  tick_time last_batch_start_;
+  caf::stream_manager_ptr smp;
 };
 
 #endif // SINK_HPP

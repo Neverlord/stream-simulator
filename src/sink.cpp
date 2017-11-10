@@ -19,11 +19,22 @@
 
 #include "sink.hpp"
 
-#include "caf/stream.hpp"
+#include <QWidget>
 
-#include "environment.hpp"
+#include "caf/stream.hpp"
+#include "caf/terminal_stream_scatterer.hpp"
+
+#include "caf/policy/arg.hpp"
+
 #include "entity_details.hpp"
+#include "environment.hpp"
+#include "gatherer.hpp"
 #include "qstr.hpp"
+#include "scatterer.hpp"
+#include "term_scatterer.hpp"
+#include "term_gatherer.hpp"
+
+using namespace caf;
 
 sink::sink(environment* env, QWidget* parent, QString name)
     : entity(env, parent, name) {
@@ -35,44 +46,72 @@ sink::~sink() {
 }
 
 void sink::start() {
+  CAF_LOG_TRACE("");
   dialog_->drop_stage_widgets();
   dialog_->drop_source_widgets();
   simulant_->become(
-    [=](const caf::stream<int>& in) {
-      if (!simulant_->streams().empty()) {
-        auto& sm = simulant_->current_mailbox_element()->content().get_as<caf::stream_msg>(0);
-        auto& op = caf::get<caf::stream_msg::open>(sm.content);
-        auto ptr = simulant_->streams().begin()->second;
-        ptr->add_source(in.id(), op.prev_stage, op.original_stage, op.priority, op.redeployable, caf::response_promise{});
-        simulant_->streams().emplace(in.id(), ptr);
+    [=](const stream<int>& in) {
+      CAF_LOG_TRACE(CAF_ARG(in));
+      if (smp != nullptr) {
+        CAF_LOG_DEBUG("smp != nullptr");
+        auto& sm = simulant_->current_mailbox_element()
+                     ->content()
+                     .get_as<stream_msg>(0);
+        auto& op = get<stream_msg::open>(sm.content);
+        smp->add_source(in.id(), op.prev_stage, op.original_stage, op.priority,
+                        op.redeployable, response_promise{});
+        simulant_->streams().emplace(in.id(), smp);
         return;
       }
-      simulant_->make_sink(
+      CAF_LOG_DEBUG("smp == nullptr");
+      smp = simulant_->make_sink(
         in,
-        [](caf::unit_t&) {
+        [](unit_t&) {
           // nop
         },
-        [=](caf::unit_t&, int) {
-          if (!started_)
+        [=](unit_t&, int) {
+          CAF_LOG_TRACE("");
+          if (!started_) {
+            CAF_LOG_DEBUG("first-time run, set started_ = true");
             started_ = true;
+          }
           if (text(dialog_->sink_current_sender).isEmpty()) {
             auto me = simulant_->current_mailbox_element();
             text(dialog_->sink_current_sender, env_->id_by_handle(me->sender));
-            auto& sm = me->content().get_as<caf::stream_msg>(0);
-            auto& op = caf::get<caf::stream_msg::batch>(sm.content);
+            auto& sm = me->content().get_as<stream_msg>(0);
+            auto& op = get<stream_msg::batch>(sm.content);
             max(dialog_->sink_batch_progress, static_cast<int>(op.xs_size));
+            last_batch_start_ = env_->timestamp();
+            CAF_LOG_DEBUG("initialized batch processing, yield");
             yield();
           }
-          progress(dialog_->sink_item_progress, 0, val(dialog_->sink_ticks_per_item));
+          CAF_LOG_DEBUG("enter progress loop, yield ticks_per_item times");
+          progress(dialog_->sink_item_progress, 0,
+                   val(dialog_->sink_ticks_per_item));
           inc(dialog_->sink_batch_progress);
           if (at_max(dialog_->sink_batch_progress)) {
+            CAF_LOG_DEBUG("got last item in batch, record at gatherer");
+            auto& sg = static_cast<term_gatherer&>(smp->in());
+            sg.batch_completed(val(dialog_->sink_batch_progress), 0,
+                               last_batch_start_, env_->timestamp());
             yield();
             text(dialog_->sink_current_sender, qstr(""));
             reset(dialog_->sink_batch_progress, 0, 1);
           }
         },
-        [](caf::unit_t&) {
+        [](unit_t&) {
           // nop
+        },
+        policy::arg<term_gatherer, terminal_stream_scatterer>::value
+      ).ptr();
+      static_cast<term_gatherer&>(smp->in()).set_cycle_timeout();
+      simulant_->become(
+        [=](tick_atom, int64_t id) {
+          CAF_LOG_TRACE(CAF_ARG(id));
+          auto& sg = static_cast<term_gatherer&>(smp->in());
+          if (sg.cycle_timeout == id) {
+            sg.generate_tokens(env_->timestamp());
+          }
         }
       );
     }
